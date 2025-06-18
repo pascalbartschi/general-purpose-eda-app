@@ -271,7 +271,7 @@ User can export cleaned data alongside their reports for further reuse.
 
 1. Adopt a modular and reproducible folder structure such as:
 
-eda\_app/  
+root
 ├── core/                 \# reusable core functions go here  
 │   ├── \_\_init\_\_.py       \# define standard paths (DATA\_DIR etc.)  
 │   ├── upload.py         \# data upload and validation  
