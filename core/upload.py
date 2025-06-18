@@ -7,6 +7,37 @@ import numpy as np
 import streamlit as st
 from pathlib import Path
 import io
+import os
+
+def get_available_datasets(data_dir: str = 'data') -> list:
+    """
+    Get a list of available datasets in the data directory.
+    
+    Args:
+        data_dir: Path to the data directory
+        
+    Returns:
+        list: List of available dataset files
+    """
+    try:
+        # Get the absolute path to ensure consistency
+        abs_data_dir = Path(data_dir).resolve()
+        
+        if not abs_data_dir.exists() or not abs_data_dir.is_dir():
+            return []
+            
+        # Get all files with supported extensions
+        supported_extensions = ['.csv', '.xlsx', '.xls']
+        datasets = []
+        
+        for file in abs_data_dir.iterdir():
+            if file.is_file() and file.suffix.lower() in supported_extensions:
+                datasets.append(file.name)
+                
+        return sorted(datasets)
+    except Exception as e:
+        st.error(f"Error reading data directory: {str(e)}")
+        return []
 
 def validate_file_type(file: Any) -> bool:
     """
@@ -81,6 +112,32 @@ def load_file(file: Any) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
     except Exception as e:
         return None, f"Error loading file: {str(e)}"
 
+def load_dataset_from_directory(filename: str, data_dir: str = 'data') -> Tuple[Optional[pd.DataFrame], Optional[str]]:
+    """
+    Load a dataset from the data directory.
+    
+    Args:
+        filename: Name of the file to load
+        data_dir: Path to the data directory
+        
+    Returns:
+        Tuple[pd.DataFrame, str]: (dataframe, error_message)
+    """
+    try:
+        filepath = Path(data_dir) / filename
+        
+        file_extension = filepath.suffix.lower()
+        if file_extension == '.csv':
+            df = pd.read_csv(filepath, sep=None, engine='python')
+        elif file_extension in ['.xlsx', '.xls']:
+            df = pd.read_excel(filepath)
+        else:
+            return None, f"Unsupported file extension: {file_extension}"
+        
+        return df, None
+    except Exception as e:
+        return None, f"Error loading file: {str(e)}"
+
 def upload_data() -> Tuple[Optional[pd.DataFrame], Dict[str, Any]]:
     """
     Handle file upload, validation, and initial loading.
@@ -92,12 +149,52 @@ def upload_data() -> Tuple[Optional[pd.DataFrame], Dict[str, Any]]:
         'upload_success': False,
         'df': None,
         'error_message': None,
-        'filename': None
-    }
+        'filename': None    }
     
     st.title("Data Upload")
     
-    uploaded_file = st.file_uploader("Choose a data file", type=['csv', 'xlsx', 'xls'])
+    # Create tabs for different data sources
+    upload_tab, sample_tab = st.tabs(["Upload Your Data", "Use Sample Dataset"])
+    
+    # Tab for uploading new data
+    with upload_tab:
+        uploaded_file = st.file_uploader("Choose a data file", type=['csv', 'xlsx', 'xls'])
+    
+    # Tab for selecting sample datasets
+    with sample_tab:
+        data_dir = 'data'  # Default data directory
+        available_datasets = get_available_datasets(data_dir)
+        
+        if available_datasets:
+            st.write("### Available Sample Datasets")
+            dataset_options = {filename: filename for filename in available_datasets}
+            selected_dataset = st.selectbox("Choose a sample dataset", options=list(dataset_options.keys()))
+            
+            if st.button("Load Selected Dataset"):
+                df, error = load_dataset_from_directory(selected_dataset, data_dir)
+                if error:
+                    session_state['error_message'] = error
+                    st.error(error)
+                else:
+                    # Update session state with successful load
+                    session_state['upload_success'] = True
+                    session_state['df'] = df
+                    session_state['filename'] = selected_dataset
+                    
+                    # Display success message and preview
+                    st.success(f"Dataset '{selected_dataset}' successfully loaded!")
+                    st.write("Data Preview:")
+                    st.dataframe(df.head())
+                    
+                    # Display basic info
+                    st.write("Basic Information:")
+                    buffer = io.StringIO()
+                    df.info(buf=buffer)
+                    st.text(buffer.getvalue())
+                    
+                    return df, session_state
+        else:
+            st.write("No sample datasets found in the data directory.")
     
     if uploaded_file is not None:
         # Validate file type
