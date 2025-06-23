@@ -1,6 +1,11 @@
 # General Purpose EDA App
 
 This is a comprehensive, production-ready Exploratory Data Analysis (EDA) application built with Streamlit. The app enables users to upload, clean, analyze, and generate reports for datasets with an intuitive interface.
+**This has to be cleaned up**
+Kaggle links: 
+* https://www.kaggle.com/datasets/nelgiriyewithana/billionaires-statistics-dataset
+* https://www.kaggle.com/c/titanic/
+* https://www.kaggle.com/datasets/firedmosquito831/student-academic-performance-simulation-4000
 
 ## Features
 

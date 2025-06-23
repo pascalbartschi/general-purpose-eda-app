@@ -390,7 +390,10 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
         st.subheader("Correlation Analysis with Statistical Significance")
         
         # Get numeric columns
-        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+        # Get numeric columns that are not always None/NaN
+        numeric_cols = [col for col in df.select_dtypes(include=['number']).columns 
+                        if not df[col].isna().all()]
+
         
         if len(numeric_cols) > 1:
             # Select columns for correlation
@@ -463,107 +466,109 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
                 else:
                     st.info("No statistically significant correlations found.")
                 
-                # Correlation vs. Causation Helper
-                st.subheader("Correlation vs. Causation Helper")
-                st.write("""
-                Remember that correlation does not imply causation. Consider these potential confounding explanations:
+        #         # Correlation vs. Causation Helper
+        #         st.subheader("Correlation vs. Causation Helper")
+        #         st.write("""
+        #         Remember that correlation does not imply causation. Consider these potential confounding explanations:
                 
-                1. **Common Cause**: Both variables might be affected by a third variable
-                2. **Reverse Causality**: The direction of cause and effect might be reversed
-                3. **Coincidence**: Especially with small samples, correlations can occur by chance
-                4. **Indirect Relationship**: Variables may be connected through a chain of relationships
+        #         1. **Common Cause**: Both variables might be affected by a third variable
+        #         2. **Reverse Causality**: The direction of cause and effect might be reversed
+        #         3. **Coincidence**: Especially with small samples, correlations can occur by chance
+        #         4. **Indirect Relationship**: Variables may be connected through a chain of relationships
                 
-                Consider stratifying your data by potential confounding variables to check if correlations hold across different groups.
-                """)
+        #         Consider stratifying your data by potential confounding variables to check if correlations hold across different groups.
+        #         """)
                 
-                # Allow selection of variables and potential confounders
-                if len(significant_corrs) > 0 and len(df.columns) > 2:
-                    st.write("**Explore Potential Confounding:**")
+        #         # Allow selection of variables and potential confounders
+        #         if len(significant_corrs) > 0 and len(df.columns) > 2:
+        #             st.write("**Explore Potential Confounding:**")
                     
-                    var_options = [f"{row['Variable 1']} vs {row['Variable 2']}" for row in significant_corrs]
-                    selected_pair = st.selectbox("Select a correlation to explore:", var_options)
+        #             var_options = [f"{row['Variable 1']} vs {row['Variable 2']}" for row in significant_corrs]
+        #             selected_pair = st.selectbox("Select a correlation to explore:", var_options)
                     
-                    if selected_pair:
-                        var1, var2 = selected_pair.split(" vs ")
+        #             if selected_pair:
+        #                 var1, var2 = selected_pair.split(" vs ")
                         
-                        # Select potential confounder
-                        other_cols = [col for col in df.columns if col not in [var1, var2]]
-                        confounder = st.selectbox("Select potential confounder:", other_cols)
+        #                 # Select potential confounder
+        #                 other_cols = [col for col in df.columns if col not in [var1, var2]]
+        #                 confounder = st.selectbox("Select potential confounder:", other_cols)
                         
-                        if pd.api.types.is_numeric_dtype(df[confounder]):
-                            # For numeric confounders, create segments
-                            n_bins = st.slider("Number of bins for confounder:", 2, 5, 3)
+        #                 if pd.api.types.is_numeric_dtype(df[confounder]):
+        #                     # For numeric confounders, create segments
+        #                     n_bins = st.slider("Number of bins for confounder:", 2, 5, 3)
                             
-                            df['confounder_bin'] = pd.qcut(df[confounder], q=n_bins, duplicates='drop')
+        #                     df['confounder_bin'] = pd.qcut(df[confounder], q=n_bins, duplicates='drop')
                             
-                            # Create scatter plot colored by bins
-                            fig = px.scatter(
-                                df, 
-                                x=var1,
-                                y=var2,
-                                color='confounder_bin',
-                                title=f"{var2} vs {var1}, stratified by {confounder}"
-                            )
-                            st.plotly_chart(fig, use_container_width=True)
+        #                     # Create scatter plot colored by bins
+        #                     fig = px.scatter(
+        #                         df, 
+        #                         x=var1,
+        #                         y=var2,
+        #                         color='confounder_bin',
+        #                         title=f"{var2} vs {var1}, stratified by {confounder}"
+        #                     )
+        #                     st.plotly_chart(fig, use_container_width=True)
                             
-                            # Show correlations within each bin
-                            st.write("**Correlations within strata:**")
+        #                     # Show correlations within each bin
+        #                     st.write("**Correlations within strata:**")
                             
-                            strata_corrs = []
-                            for bin_val in df['confounder_bin'].unique():
-                                bin_df = df[df['confounder_bin'] == bin_val]
-                                if len(bin_df) > 5:  # Need sufficient data for correlation
-                                    bin_corr = bin_df[[var1, var2]].corr(method=corr_method.lower()).iloc[0, 1]
-                                    strata_corrs.append({
-                                        'Stratum': str(bin_val),
-                                        'Correlation': bin_corr,
-                                        'Sample Size': len(bin_df)
-                                    })
+        #                     strata_corrs = []
+        #                     for bin_val in df['confounder_bin'].unique():
+        #                         bin_df = df[df['confounder_bin'] == bin_val]
+        #                         if len(bin_df) > 5:  # Need sufficient data for correlation
+        #                             bin_corr = bin_df[[var1, var2]].corr(method=corr_method.lower()).iloc[0, 1]
+        #                             strata_corrs.append({
+        #                                 'Stratum': str(bin_val),
+        #                                 'Correlation': bin_corr,
+        #                                 'Sample Size': len(bin_df)
+        #                             })
                             
-                            if strata_corrs:
-                                st.dataframe(pd.DataFrame(strata_corrs))
-                        else:
-                            # For categorical confounders
-                            confounder_vals = df[confounder].unique()
+        #                     if strata_corrs:
+        #                         st.dataframe(pd.DataFrame(strata_corrs))
+        #                 else:
+        #                     # For categorical confounders
+        #                     confounder_vals = df[confounder].unique()
                             
-                            if len(confounder_vals) <= 10:  # Only if reasonably few categories
-                                # Create scatter plot colored by category
-                                fig = px.scatter(
-                                    df, 
-                                    x=var1,
-                                    y=var2,
-                                    color=confounder,
-                                    title=f"{var2} vs {var1}, colored by {confounder}"
-                                )
-                                st.plotly_chart(fig, use_container_width=True)
+        #                     if len(confounder_vals) <= 10:  # Only if reasonably few categories
+        #                         # Create scatter plot colored by category
+        #                         fig = px.scatter(
+        #                             df, 
+        #                             x=var1,
+        #                             y=var2,
+        #                             color=confounder,
+        #                             title=f"{var2} vs {var1}, colored by {confounder}"
+        #                         )
+        #                         st.plotly_chart(fig, use_container_width=True)
                                 
-                                # Show correlations within each category
-                                st.write("**Correlations within groups:**")
+        #                         # Show correlations within each category
+        #                         st.write("**Correlations within groups:**")
                                 
-                                group_corrs = []
-                                for group in confounder_vals:
-                                    group_df = df[df[confounder] == group]
-                                    if len(group_df) > 5:  # Need sufficient data for correlation
-                                        group_corr = group_df[[var1, var2]].corr(method=corr_method.lower()).iloc[0, 1]
-                                        group_corrs.append({
-                                            'Group': str(group),
-                                            'Correlation': group_corr,
-                                            'Sample Size': len(group_df)
-                                        })
+        #                         group_corrs = []
+        #                         for group in confounder_vals:
+        #                             group_df = df[df[confounder] == group]
+        #                             if len(group_df) > 5:  # Need sufficient data for correlation
+        #                                 group_corr = group_df[[var1, var2]].corr(method=corr_method.lower()).iloc[0, 1]
+        #                                 group_corrs.append({
+        #                                     'Group': str(group),
+        #                                     'Correlation': group_corr,
+        #                                     'Sample Size': len(group_df)
+        #                                 })
                                 
-                                if group_corrs:
-                                    st.dataframe(pd.DataFrame(group_corrs))
-            else:
-                st.warning("Please select at least 2 columns for correlation analysis.")
-        else:
-            st.warning("Need at least 2 numeric columns for correlation analysis.")
+        #                         if group_corrs:
+        #                             st.dataframe(pd.DataFrame(group_corrs))
+        #     else:
+        #         st.warning("Please select at least 2 columns for correlation analysis.")
+        # else:
+        #     st.warning("Need at least 2 numeric columns for correlation analysis.")
     
     # Tab 2: Dimensionality Reduction
     with tab2:
         st.subheader("Dimensionality Reduction")
         
         # Get numeric columns
-        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+        numeric_cols = [col for col in df.select_dtypes(include=['number']).columns 
+                if not df[col].isna().all()]
+
         
         if len(numeric_cols) >= 2:
             # Select columns for dimensionality reduction
@@ -733,7 +738,8 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
         st.subheader("Clustering Analysis")
         
         # Get numeric columns
-        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+        numeric_cols = [col for col in df.select_dtypes(include=['number']).columns 
+        if not df[col].isna().all()]
         
         if len(numeric_cols) >= 2:
             # Select columns for clustering
@@ -908,8 +914,10 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
         st.subheader("Hypothesis Testing")
         
         # Get numeric and categorical columns
-        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
-        categorical_cols = df.select_dtypes(exclude=['number']).columns.tolist()
+        numeric_cols = [col for col in df.select_dtypes(include=['number']).columns 
+        if not df[col].isna().all()]
+        categorical_cols = [col for col in df.select_dtypes(exclude=['number']).columns 
+        if not df[col].isna().all()]
         
         if numeric_cols and categorical_cols:
             # Select test type

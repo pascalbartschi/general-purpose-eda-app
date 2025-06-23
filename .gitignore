@@ -40,12 +40,12 @@ venv.bak/
 *.swo
 
 # Application specific
-data/
+# data/
 models/
 output/
 cache/
 *.pkl
-*.csv
+# *.csv
 *.xlsx
 *.xls
 *.pdf
