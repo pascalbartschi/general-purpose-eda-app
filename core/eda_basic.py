@@ -321,87 +321,58 @@ def plot_boxplot(df: pd.DataFrame,
         
     return fig
 
-def plot_scatter(df: pd.DataFrame, 
-                x_col: str, 
-                y_col: str, 
-                color_col: Optional[str] = None) -> go.Figure:
-    """
-    Create a scatter plot between two numerical features.
-    
-    Args:
-        df: Input dataframe
-        x_col: Column name for x-axis
-        y_col: Column name for y-axis
-        color_col: Optional column for coloring points
-        
-    Returns:
-        go.Figure: Plotly figure object
-    """
+def plot_scatter(df, x_col, y_col, color_col=None):
     title = f"Scatter Plot: {y_col} vs {x_col}"
-    
     if color_col:
-        title += f" (colored by {color_col})"
-        fig = px.scatter(
-            df,
-            x=x_col,
-            y=y_col,
-            color=color_col,
-            title=title,
-            labels={x_col: x_col, y_col: y_col, color_col: color_col}
-        )
+        fig = px.scatter(df, x=x_col, y=y_col, color=color_col, title=title)
     else:
-        fig = px.scatter(
-            df,
-            x=x_col,
-            y=y_col,
-            title=title,
-            labels={x_col: x_col, y_col: y_col}
-        )
-    
-    # Add trend line
-    if pd.api.types.is_numeric_dtype(df[x_col]) and pd.api.types.is_numeric_dtype(df[y_col]):
-        try:
-            fig.update_layout(
-                shapes=[
-                    dict(
-                        type='line',
-                        yref='y',
-                        xref='x',
-                        x0=df[x_col].min(),
-                        y0=np.polyval(np.polyfit(df[x_col].dropna(), df[y_col].dropna(), 1), df[x_col].min()),
-                        x1=df[x_col].max(),
-                        y1=np.polyval(np.polyfit(df[x_col].dropna(), df[y_col].dropna(), 1), df[x_col].max()),
-                        line=dict(
-                            color="red",
-                            width=2,
-                            dash="dash",
-                        )
-                    )
-                ]
-            )
-            
-            # Calculate correlation
-            corr = df[[x_col, y_col]].corr().iloc[0, 1]
-            fig.add_annotation(
-                x=0.95,
-                y=0.05,
-                xref="paper",
-                yref="paper",
-                text=f"Correlation: {corr:.2f}",
-                showarrow=False,
-                font=dict(
-                    size=12,
-                    color="black"
-                ),
-                bordercolor="black",
-                bgcolor="white",
-                borderwidth=1,
-                borderpad=4
-            )
-        except:
-            # Skip trend line if there's an error
-            pass
-    
+        fig = px.scatter(df, x=x_col, y=y_col, title=title)
+
+    try:
+        x_vals = df[x_col].dropna()
+        y_vals = df[y_col].dropna()
+        common = df[[x_col, y_col]].dropna()
+        fit_type = st.selectbox("Select fit type:", ["Linear", "Quadratic", "Cubic", "Exponential", "Logarithmic", "Polynomial (n-order)"], index=0)
+
+        if fit_type == "Linear":
+            degree = 1
+        elif fit_type == "Quadratic":
+            degree = 2
+        elif fit_type == "Cubic":
+            degree = 3
+        elif fit_type == "Exponential":
+            coeffs = np.polyfit(common[x_col], np.log(common[y_col] + 1e-5), 1)
+            y_fit = np.exp(coeffs[1] + coeffs[0] * common[x_col])
+            fig.add_trace(go.Scatter(x=common[x_col], y=y_fit, mode='lines', name='Exponential Fit'))
+            corr = np.corrcoef(common[y_col], y_fit)[0, 1]
+            fig.add_annotation(x=0.95, y=0.05, xref="paper", yref="paper", text=f"Exp Corr: {corr:.2f}",
+                               showarrow=False, bgcolor="white")
+            return fig
+        elif fit_type == "Logarithmic":
+            log_x = np.log(common[x_col] + 1e-5)
+            coeffs = np.polyfit(log_x, common[y_col], 1)
+            y_fit = coeffs[0] * np.log(common[x_col] + 1e-5) + coeffs[1]
+            fig.add_trace(go.Scatter(x=common[x_col], y=y_fit, mode='lines', name='Log Fit'))
+            corr = np.corrcoef(common[y_col], y_fit)[0, 1]
+            fig.add_annotation(x=0.95, y=0.05, xref="paper", yref="paper", text=f"Log Corr: {corr:.2f}",
+                               showarrow=False, bgcolor="white")
+            return fig
+        elif fit_type == "Polynomial (n-order)":
+            degree = st.slider("Select polynomial degree:", min_value=1, max_value=10, value=4)
+        else:
+            degree = 1
+
+        coeffs = np.polyfit(common[x_col], common[y_col], degree)
+        poly = np.poly1d(coeffs)
+        x_sorted = np.sort(common[x_col])
+        y_fit = poly(x_sorted)
+        fig.add_trace(go.Scatter(x=x_sorted, y=y_fit, mode='lines', name=f'{fit_type} Fit'))
+        corr = np.corrcoef(common[y_col], poly(common[x_col]))[0, 1]
+        fig.add_annotation(x=0.95, y=0.05, xref="paper", yref="paper", text=f"Corr: {corr:.2f}",
+                           showarrow=False, bgcolor="white")
+    except Exception as e:
+        st.warning(f"Could not compute fit: {e}")
+
     return fig
 
 def basic_eda_ui(df: pd.DataFrame) -> None:
@@ -675,88 +646,65 @@ def basic_eda_ui(df: pd.DataFrame) -> None:
                     st.dataframe(corr_matrix.style.background_gradient(cmap='coolwarm'))
         else:
             st.warning("Need at least 2 numeric columns for relationship analysis.")
-    
-    # Tab 5: Time Series Analysis
+
+
+# Tab 5: Time Series Analysis
     with tab5:
         st.subheader("Time Series Analysis")
+
+        df_temp = df.copy()
+
+        x_col = st.selectbox("Select X-axis (time-like or numeric):", options=df_temp.columns)
         
-        # Detect datetime columns
-        datetime_cols = df.select_dtypes(include=['datetime']).columns.tolist()
-        
-        # Also check if any object columns might be convertible to datetime
-        for col in df.select_dtypes(include=['object']):
-            try:
-                # Try to convert a sample
-                sample = pd.to_datetime(df[col].dropna().iloc[0])
-                if isinstance(sample, pd.Timestamp):
-                    datetime_cols.append(col)
-            except:
-                pass
-        
-        if datetime_cols:
-            datetime_col = st.selectbox(
-                "Select datetime column:",
-                options=datetime_cols
-            )
-            
-            if datetime_col:
-                # Ensure column is datetime type
-                df_temp = df.copy()
-                df_temp[datetime_col] = pd.to_datetime(df_temp[datetime_col], errors='coerce')
-                
-                # Select numeric column to analyze
-                numeric_cols = df_temp.select_dtypes(include=['number']).columns.tolist()
-                
-                if numeric_cols:
-                    numeric_col = st.selectbox(
-                        "Select numeric column for time series analysis:",
-                        options=numeric_cols
-                    )
-                    
-                    # Group data by time periods
-                    time_freq = st.selectbox(
-                        "Select time aggregation level:",
-                        options=["Day", "Week", "Month", "Year"],
-                        index=2  # Default to Month
-                    )
-                    
-                    # Map selection to pandas frequency code
-                    freq_map = {
-                        "Day": "D",
-                        "Week": "W",
-                        "Month": "M",
-                        "Year": "Y"
-                    }
-                    selected_freq = freq_map[time_freq]
-                    
-                    # Aggregate data
-                    if selected_freq == "D":
-                        df_temp['period'] = df_temp[datetime_col].dt.date
-                    elif selected_freq == "W":
-                        df_temp['period'] = df_temp[datetime_col].dt.to_period("W").dt.start_time
-                    elif selected_freq == "M":
-                        df_temp['period'] = df_temp[datetime_col].dt.to_period("M").dt.start_time
-                    else:  # yearly
-                        df_temp['period'] = df_temp[datetime_col].dt.to_period("Y").dt.start_time
-                    
-                    # Calculate aggregations
-                    agg_data = df_temp.groupby('period')[numeric_col].agg(['mean', 'median', 'min', 'max', 'count']).reset_index()
-                    
-                    # Plot time series
-                    fig = px.line(
-                        agg_data, 
-                        x='period', 
-                        y=['mean', 'median', 'min', 'max'],
-                        title=f"Time Series Analysis of {numeric_col} by {time_freq}",
-                        labels={'value': numeric_col, 'period': 'Time Period', 'variable': 'Metric'}
-                    )
-                    
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                    # Show data table
-                    st.write("**Time Series Aggregated Data:**")
-                    st.dataframe(agg_data)
-                else:
-                    st.warning("No numeric columns available for time series analysis.")
+        if pd.api.types.is_datetime64_any_dtype(df_temp[x_col]):
+            df_temp['x_val'] = df_temp[x_col]
+            x_label = x_col
         else:
-            st.warning("No datetime columns detected in the dataset.")
+            try:
+                df_temp['x_val'] = pd.to_numeric(df_temp[x_col])
+                x_unit = st.text_input(f"Enter unit for x-axis [{x_col}]:", value="units")
+                x_label = f"{x_col} [{x_unit}]"
+            except:
+                st.error("Selected x-axis column must be datetime or numeric.")
+                st.stop()
+
+        numeric_cols = df_temp.select_dtypes(include='number').columns.tolist()
+        if not numeric_cols:
+            st.warning("No numeric columns available for Y-axis.")
+            st.stop()
+
+        y_col = st.selectbox("Select Y-axis (numeric):", options=numeric_cols)
+        df_temp['y_val'] = df_temp[y_col]
+
+        # Drop missing values
+        df_temp = df_temp[['x_val', 'y_val']].dropna().sort_values('x_val')
+
+        # Plotting
+        fig = px.line(df_temp, x='x_val', y='y_val', title=f"{y_col} vs {x_col}",
+                    labels={'x_val': x_label, 'y_val': y_col})
+        
+        st.plotly_chart(fig, use_container_width=True)
+
+        # --- Basic Time Series Stats ---
+        st.subheader("Time Series Statistics")
+        st.write(f"**{y_col} Summary Stats:**")
+        st.write(df_temp['y_val'].describe())
+
+        # Optional rolling mean
+        window = st.slider("Rolling Mean Window (points):", min_value=1, max_value=min(100, len(df_temp)), value=5)
+        df_temp['rolling_mean'] = df_temp['y_val'].rolling(window=window).mean()
+
+        fig2 = px.line(df_temp, x='x_val', y='rolling_mean', title=f"{y_col} - Rolling Mean ({window} points)",
+                    labels={'x_val': x_label, 'rolling_mean': f"{y_col} (Rolling Mean)"})
+        st.plotly_chart(fig2, use_container_width=True)
+
+        # Optional linear trend line
+        st.subheader("Add Linear Trend Line?")
+        if st.checkbox("Show Linear Trend"):
+            coeffs = np.polyfit(df_temp['x_val'], df_temp['y_val'], 1)
+            trend = np.poly1d(coeffs)
+            df_temp['trend'] = trend(df_temp['x_val'])
+
+            fig3 = px.line(df_temp, x='x_val', y='trend', title=f"{y_col} - Linear Trend",
+                        labels={'x_val': x_label, 'trend': 'Trend'})
+            st.plotly_chart(fig3, use_container_width=True)
