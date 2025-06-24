@@ -393,6 +393,11 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
         # Get numeric columns that are not always None/NaN
         numeric_cols = [col for col in df.select_dtypes(include=['number']).columns 
                         if not df[col].isna().all()]
+        st.write(df[numeric_cols].isna().sum())
+        
+
+
+
 
         
         if len(numeric_cols) > 1:

@@ -13,7 +13,6 @@ from core.upload import upload_data
 from core.cleaning import clean_data_ui
 from core.eda_basic import basic_eda_ui
 from core.eda_advanced import advanced_eda_ui
-from core.report import report_generation_ui
 
 # Set page config
 st.set_page_config(
@@ -113,9 +112,9 @@ def main():
     st.sidebar.header("Navigation")
     page = st.sidebar.radio(
         "Go to",
-        ["Data Upload", "Data Cleaning", "Basic EDA", "Advanced EDA", "Report Generation"],
-        index=["upload", "cleaning", "basic_eda", "advanced_eda", "report"].index(st.session_state['page']) 
-        if st.session_state['page'] in ["upload", "cleaning", "basic_eda", "advanced_eda", "report"] 
+        ["Data Upload", "Data Cleaning", "Basic EDA", "Advanced EDA"],
+        index=["upload", "cleaning", "basic_eda", "advanced_eda"].index(st.session_state['page']) 
+        if st.session_state['page'] in ["upload", "cleaning", "basic_eda", "advanced_eda"] 
         else 0
     )
     
@@ -124,8 +123,9 @@ def main():
         "Data Upload": "upload",
         "Data Cleaning": "cleaning",
         "Basic EDA": "basic_eda",
-        "Advanced EDA": "advanced_eda",
-        "Report Generation": "report"
+        "Advanced EDA": "advanced_eda"
+
+        # "Report Generation": "report"
     }
     st.session_state['page'] = page_map[page]
     
@@ -166,17 +166,6 @@ def main():
             advanced_eda_ui(st.session_state['df'])
         else:
             st.warning("Please upload and clean a dataset first.")
-    
-    elif page == "Report Generation":
-        if st.session_state['df'] is not None:
-            report_generation_ui(
-                st.session_state['df'],
-                st.session_state['cleaning_steps'],
-                st.session_state['basic_eda_results'],
-                st.session_state['advanced_eda_results']
-            )
-        else:
-            st.warning("Please upload, clean, and analyze a dataset first.")
     
     # Auto-save state
     save_current_state()

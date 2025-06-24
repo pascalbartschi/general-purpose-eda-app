@@ -33,24 +33,11 @@ venv.bak/
 # Jupyter Notebook
 .ipynb_checkpoints
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
 # Application specific
 # data/
 models/
 output/
 cache/
-*.pkl
-# *.csv
-*.xlsx
-*.xls
-*.pdf
-*.html
 
-# OS specific
-.DS_Store
-Thumbs.db
+# VSCode
+.vscode
