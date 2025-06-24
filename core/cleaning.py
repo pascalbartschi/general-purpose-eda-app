@@ -396,8 +396,11 @@ def clean_data_ui(df: pd.DataFrame) -> pd.DataFrame:
     st.dataframe(cleaned_df.head())
     
     # Option to download the cleaned dataset
-    if st.button("Download Cleaned Dataset"):
-        # In a real app, you'd implement the download functionality here
-        st.write("Download functionality would be implemented here.")
+    st.download_button(
+        label="Download Cleaned Dataset as CSV",
+        data=cleaned_df.to_csv(index=False).encode('utf-8'),
+        file_name='cleaned_data.csv',
+        mime='text/csv',
+    )
     
     return cleaned_df
