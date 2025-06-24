@@ -103,8 +103,10 @@ def load_file(file: Any) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
         if file_extension == '.csv':
             # Try to infer CSV delimiter
             df = pd.read_csv(file, sep=None, engine='python')
-        elif file_extension in ['.xlsx', '.xls']:
-            df = pd.read_excel(file)
+        elif file_extension == '.xlsx':
+            df = pd.read_excel(file, engine='openpyxl')
+        elif file_extension == '.xls':
+            df = pd.read_excel(file, engine='xlrd')
         else:
             return None, f"Unsupported file extension: {file_extension}"
         
@@ -129,8 +131,10 @@ def load_dataset_from_directory(filename: str, data_dir: str = 'data') -> Tuple[
         file_extension = filepath.suffix.lower()
         if file_extension == '.csv':
             df = pd.read_csv(filepath, sep=None, engine='python')
-        elif file_extension in ['.xlsx', '.xls']:
-            df = pd.read_excel(filepath)
+        elif file_extension == '.xlsx':
+            df = pd.read_excel(filepath, engine='openpyxl')
+        elif file_extension == '.xls':
+            df = pd.read_excel(filepath, engine='xlrd')
         else:
             return None, f"Unsupported file extension: {file_extension}"
         
