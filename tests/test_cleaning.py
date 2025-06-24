@@ -4,7 +4,7 @@ Basic tests for the EDA app core functionality.
 import unittest
 import pandas as pd
 import numpy as np
-from core.cleaning import detect_non_standard_missing, normalize_column
+from core.cleaning import detect_non_standard_missing, normalize_column, replace_non_standard_missing
 
 class TestCleaning(unittest.TestCase):
     def setUp(self):
@@ -25,6 +25,31 @@ class TestCleaning(unittest.TestCase):
         self.assertEqual(len(missing_dict['with_missing']), 2)
         self.assertIn('n/a', [str(val).lower() for val in missing_dict['with_missing']])
         self.assertIn('-', [str(val).lower() for val in missing_dict['with_missing']])
+    
+    def test_replace_non_standard_missing(self):
+        """
+        Tests that non-standard missing values (e.g., '.', '-', ' ')
+        are correctly replaced with np.nan.
+        """
+        # 1. Create a sample DataFrame with non-standard missing values
+        data = {
+            'A': [1, 2, '.', 4],
+            'B': ['x', '-', 'y', 'z'],
+            'C': [5.0, 6.0, 7.0, ' ']
+        }
+        df = pd.DataFrame(data)
+
+        # 2. Define the symbols to be treated as missing
+        missing_symbols = ['.', '-', ' ']
+
+        # 3. Call the function to be tested
+        cleaned_df = replace_non_standard_missing(df, missing_symbols)
+
+        # 4. Assert the expected outcome
+        self.assertTrue(pd.isna(cleaned_df.loc[2, 'A']))
+        self.assertTrue(pd.isna(cleaned_df.loc[1, 'B']))
+        self.assertTrue(pd.isna(cleaned_df.loc[3, 'C']))
+        self.assertEqual(cleaned_df.loc[0, 'A'], 1) # Ensure other values are untouched
     
     def test_normalize_column(self):
         """Test that column normalization works."""
