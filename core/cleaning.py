@@ -262,15 +262,42 @@ def clean_data_ui(df: pd.DataFrame) -> pd.DataFrame:
         return None
 
     # --- Session State Initialization ---
+    # Only set true_original_df if it does not exist (i.e., on first upload)
+    if 'true_original_df' not in st.session_state:
+        st.session_state.true_original_df = df.copy()
+        print('DEBUG: true_original_df set.')
+    # Only set original_df/cleaned_df if new data is uploaded
     if 'cleaned_df' not in st.session_state or not st.session_state.get('original_df', pd.DataFrame()).equals(df):
         st.session_state.original_df = df.copy()
         st.session_state.cleaned_df = df.copy()
         st.success("New dataset loaded. Cleaning state has been reset.")
+        print('DEBUG: original_df and cleaned_df set.')
 
     # --- Reset Button ---
     if st.button("Reset All Cleaning Steps"):
-        st.session_state.cleaned_df = st.session_state.original_df.copy()
-        st.success("All cleaning steps have been reset.")
+        # Deep copy by serializing/deserializing to ensure breaking all references
+        true_df_csv = st.session_state.true_original_df.to_csv(index=False)
+        restored_df = pd.read_csv(pd.io.common.StringIO(true_df_csv))
+        
+        # Forcefully replace the dataframes
+        st.session_state.original_df = restored_df
+        st.session_state.cleaned_df = restored_df
+        
+        print(f"DEBUG: Reset - Original columns before: {list(st.session_state.true_original_df.columns)}")
+        print(f"DEBUG: Reset - Cleaned after reset: {list(st.session_state.cleaned_df.columns)}")
+        
+        # Reset all session state variables
+        keys_to_delete = []
+        for key in st.session_state:
+            if key not in ['true_original_df', 'original_df', 'cleaned_df']:
+                keys_to_delete.append(key)
+                
+        for key in keys_to_delete:
+            del st.session_state[key]
+            
+        st.session_state['features_to_keep'] = list(restored_df.columns)
+        
+        st.success("All cleaning steps have been reset. App will reload.")
         st.experimental_rerun()
 
     # Use the dataframe from session state for all operations
