@@ -1,6 +1,6 @@
 # General Purpose EDA App
 
-A streamlined Exploratory Data Analysis (EDA) application built with Streamlit that enables users to upload, clean, analyze, and generate insights from datasets with an intuitive interface. The app was developed by agentic AI (i.e., Claude Sonnet 3.7) by prompting our [requirements document](https://docs.google.com/document/d/1maDOPo9EgSe0kNaPlSoFTTMTx5SKCdyMNbW4fnoQ6CY/edit?usp=sharing). It was collaboratively developed and represents oen of the main effort of this project, on par with  refining the apps functionality from the AI-generated starting point
+A streamlined Exploratory Data Analysis (EDA) application built with Streamlit that enables users to upload, clean, analyze, and generate insights from datasets with an intuitive interface. The app was developed by agentic AI (i.e., Claude Sonnet 3.7) by prompting our [requirements document](https://docs.google.com/document/d/1maDOPo9EgSe0kNaPlSoFTTMTx5SKCdyMNbW4fnoQ6CY/edit?usp=sharing). This document was collaboratively developed and represents one of the main efforts of this project, on par with  refining the apps functionality from the AI-generated starting point
 
 ## Features
 
