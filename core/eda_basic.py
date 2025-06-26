@@ -671,17 +671,6 @@ def basic_eda_ui(df: pd.DataFrame) -> None:
             except:
                 st.error("Selected x-axis column must be datetime or numeric.")
                 st.stop()
-        
-        # Group data by a categorical column if selected
-        if pd.api.types.is_categorical_dtype(df_temp[x_col]):
-            st.warning("Selected x-axis column is categorical. Grouping by this column may not be meaningful.")
-            group_col = None
-        else:
-            # Allow grouping by another column
-            if len(df_temp.columns) > 1:
-                st.warning("Selected x-axis column is numeric or datetime. You can group by another column if desired.")
-            else:
-                st.warning("No other columns available for grouping. Proceeding without grouping.")
 
         numeric_cols = df_temp.select_dtypes(include='number').columns.tolist()
         if not numeric_cols:
@@ -691,12 +680,55 @@ def basic_eda_ui(df: pd.DataFrame) -> None:
         y_col = st.selectbox("Select Y-axis (numeric):", options=numeric_cols)
         df_temp['y_val'] = df_temp[y_col]
 
-        # Drop missing values
-        df_temp = df_temp[['x_val', 'y_val']].dropna().sort_values('x_val')
+        # Optional grouping by category
+        st.subheader("Grouping Options")
+        categorical_cols = df_temp.select_dtypes(exclude=['number', 'datetime64']).columns.tolist()
+        # Also include columns that might be categorical but stored as object/string
+        for col in df_temp.columns:
+            if col not in categorical_cols and df_temp[col].dtype == 'object':
+                if df_temp[col].nunique() <= 50:  # Reasonable number of categories
+                    categorical_cols.append(col)
+        
+        group_col = None
+        if categorical_cols:
+            use_grouping = st.checkbox("Group by category column?", value=False)
+            if use_grouping:
+                group_col = st.selectbox("Select column for grouping:", options=categorical_cols)
+                
+                # Option to select specific categories
+                if group_col:
+                    unique_categories = df_temp[group_col].unique()
+                    st.write(f"Found {len(unique_categories)} unique categories in '{group_col}'")
+                    
+                    if len(unique_categories) > 20:
+                        st.warning(f"Large number of categories ({len(unique_categories)}). Consider selecting specific ones below.")
+                    
+                    # Allow user to select specific categories
+                    selected_categories = st.multiselect(
+                        f"Select specific categories from '{group_col}' (leave empty for all):",
+                        options=unique_categories,
+                        default=unique_categories[:min(10, len(unique_categories))]  # Default to first 10
+                    )
+                    
+                    if selected_categories:
+                        df_temp = df_temp[df_temp[group_col].isin(selected_categories)]
 
-        # Plotting
-        fig = px.line(df_temp, x='x_val', y='y_val', title=f"{y_col} vs {x_col}",
-                    labels={'x_val': x_label, 'y_val': y_col})
+        # Prepare data for plotting
+        if group_col:
+            # Keep the grouping column along with x and y values
+            df_temp = df_temp[['x_val', 'y_val', group_col]].dropna().sort_values('x_val')
+            
+            # Plotting with grouping
+            fig = px.line(df_temp, x='x_val', y='y_val', color=group_col,
+                        title=f"{y_col} vs {x_col} (grouped by {group_col})",
+                        labels={'x_val': x_label, 'y_val': y_col, group_col: group_col})
+        else:
+            # Drop missing values
+            df_temp = df_temp[['x_val', 'y_val']].dropna().sort_values('x_val')
+            
+            # Plotting without grouping
+            fig = px.line(df_temp, x='x_val', y='y_val', title=f"{y_col} vs {x_col}",
+                        labels={'x_val': x_label, 'y_val': y_col})
         
         st.plotly_chart(fig, use_container_width=True)
 
@@ -707,10 +739,20 @@ def basic_eda_ui(df: pd.DataFrame) -> None:
 
         # Optional rolling mean
         window = st.slider("Rolling Mean Window (points):", min_value=1, max_value=min(100, len(df_temp)), value=5)
-        df_temp['rolling_mean'] = df_temp['y_val'].rolling(window=window).mean()
-
-        fig2 = px.line(df_temp, x='x_val', y='rolling_mean', title=f"{y_col} - Rolling Mean ({window} points)",
-                    labels={'x_val': x_label, 'rolling_mean': f"{y_col} (Rolling Mean)"})
+        
+        if group_col:
+            # Calculate rolling mean for each group
+            df_temp['rolling_mean'] = df_temp.groupby(group_col)['y_val'].rolling(window=window).mean().reset_index(0, drop=True)
+            
+            fig2 = px.line(df_temp, x='x_val', y='rolling_mean', color=group_col,
+                        title=f"{y_col} - Rolling Mean ({window} points) grouped by {group_col}",
+                        labels={'x_val': x_label, 'rolling_mean': f"{y_col} (Rolling Mean)", group_col: group_col})
+        else:
+            df_temp['rolling_mean'] = df_temp['y_val'].rolling(window=window).mean()
+            
+            fig2 = px.line(df_temp, x='x_val', y='rolling_mean', title=f"{y_col} - Rolling Mean ({window} points)",
+                        labels={'x_val': x_label, 'rolling_mean': f"{y_col} (Rolling Mean)"})
+        
         st.plotly_chart(fig2, use_container_width=True)
 
         # Optional linear trend line
