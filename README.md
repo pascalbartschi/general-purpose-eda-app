@@ -7,7 +7,7 @@ A streamlined Exploratory Data Analysis (EDA) application built with Streamlit t
 ### Implemented
 
 - **Data Upload**: own data in CSV & Excel formats or choose from sample data
-- **Data Cleaning**: Missing value detection, type conversion, normalization, feature creation, column selection
+- **Data Cleaning**: Missing value detection, adaptation of missing values, variables type conversion, normalization, feature selection 
 - **Basic EDA**: Descriptive statistics, distribution visualization, outlier detection, relationship analysis, time series analysis
 - **Advanced EDA**: Correlation matrices, dimensionality reduction (PCA, t-SNE, UMAP), clustering, hypothesis testing
 
