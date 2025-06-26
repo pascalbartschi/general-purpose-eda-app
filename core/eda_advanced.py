@@ -17,7 +17,7 @@ from sklearn.cluster import KMeans, DBSCAN
 import umap
 
 def calculate_correlation_with_pvalues(df: pd.DataFrame, 
-                                     method: str = 'pearson') -> Tuple[pd.DataFrame, pd.DataFrame]:
+                                     method: str = 'pearson') -> Tuple[pd.DataFrame, pd.DataFrame, Dict]:
     """
     Calculate correlation matrix with p-values.
     
@@ -26,36 +26,86 @@ def calculate_correlation_with_pvalues(df: pd.DataFrame,
         method: Correlation method ('pearson', 'spearman', 'kendall')
         
     Returns:
-        Tuple[pd.DataFrame, pd.DataFrame]: (correlation_matrix, p_value_matrix)
+        Tuple[pd.DataFrame, pd.DataFrame, Dict]: (correlation_matrix, p_value_matrix, missing_data_info)
     """
     # Ensure we only use numeric columns
     df_numeric = df.select_dtypes(include=['number'])
     
-    # Calculate correlation matrix
+    # Original counts of non-NaN values per column
+    original_counts = df_numeric.count()
+    
+    # Calculate correlation matrix using pandas built-in method (handles NaN appropriately)
     corr_matrix = df_numeric.corr(method=method)
     
     # Initialize p-value matrix with NaN
     p_values = pd.DataFrame(np.nan, index=corr_matrix.index, columns=corr_matrix.columns)
     
+    # Dictionary to track dropped samples for each column pair
+    dropped_info = {}
+    
     # Calculate p-values
     for i in range(len(corr_matrix.columns)):
         for j in range(i+1, len(corr_matrix.columns)):
-            if method == 'pearson':
-                r, p = stats.pearsonr(df_numeric.iloc[:, i].dropna(), df_numeric.iloc[:, j].dropna())
-            elif method == 'spearman':
-                r, p = stats.spearmanr(df_numeric.iloc[:, i].dropna(), df_numeric.iloc[:, j].dropna())
-            elif method == 'kendall':
-                r, p = stats.kendalltau(df_numeric.iloc[:, i].dropna(), df_numeric.iloc[:, j].dropna())
-            else:
-                raise ValueError(f"Unsupported correlation method: {method}")
+            col_i = df_numeric.columns[i]
+            col_j = df_numeric.columns[j]
+            
+            # Find common indices where both columns have non-NaN values
+            valid_indices = df_numeric[[col_i, col_j]].dropna().index
+            
+            # Skip if no valid indices
+            if len(valid_indices) <= 1:
+                p_values.iloc[i, j] = np.nan
+                p_values.iloc[j, i] = np.nan
+                continue
                 
-            p_values.iloc[i, j] = p
-            p_values.iloc[j, i] = p  # p-value matrix is symmetric
+            # Extract values at valid indices
+            values_i = df_numeric.loc[valid_indices, col_i]
+            values_j = df_numeric.loc[valid_indices, col_j]
+            
+            # Store info about dropped samples
+            total_samples = len(df_numeric)
+            used_samples = len(valid_indices)
+            dropped_samples = total_samples - used_samples
+            
+            if dropped_samples > 0:
+                dropped_info[f"{col_i} vs {col_j}"] = {
+                    "total_samples": total_samples,
+                    "used_samples": used_samples,
+                    "dropped_samples": dropped_samples,
+                    "original_count_i": original_counts[col_i],
+                    "original_count_j": original_counts[col_j],
+                    "col_i": col_i,
+                    "col_j": col_j
+                }
+            
+            # Calculate correlation and p-value
+            try:
+                if method == 'pearson':
+                    r, p = stats.pearsonr(values_i, values_j)
+                elif method == 'spearman':
+                    r, p = stats.spearmanr(values_i, values_j)
+                elif method == 'kendall':
+                    r, p = stats.kendalltau(values_i, values_j)
+                else:
+                    raise ValueError(f"Unsupported correlation method: {method}")
+                
+                p_values.iloc[i, j] = p
+                p_values.iloc[j, i] = p  # p-value matrix is symmetric
+            except Exception as e:
+                p_values.iloc[i, j] = np.nan
+                p_values.iloc[j, i] = np.nan
     
     # Set diagonal to 0
     np.fill_diagonal(p_values.values, 0)
     
-    return corr_matrix, p_values
+    # Create summary of missing data
+    missing_data_info = {
+        "has_dropped_data": len(dropped_info) > 0,
+        "dropped_pairs": dropped_info,
+        "columns_with_most_missing": original_counts.sort_values().head(3).to_dict() if not original_counts.empty else {}
+    }
+    
+    return corr_matrix, p_values, missing_data_info
 
 def perform_pca(df: pd.DataFrame, 
                n_components: int = 2, 
@@ -74,12 +124,15 @@ def perform_pca(df: pd.DataFrame,
     # Ensure we only use numeric columns
     df_numeric = df.select_dtypes(include=['number'])
     
+    # Handle missing values by dropping rows with any NaN values
+    df_numeric_clean = df_numeric.dropna()
+    
     # Standardize if requested
     if standardize:
         scaler = StandardScaler()
-        scaled_data = scaler.fit_transform(df_numeric)
+        scaled_data = scaler.fit_transform(df_numeric_clean)
     else:
-        scaled_data = df_numeric.values
+        scaled_data = df_numeric_clean.values
     
     # Perform PCA
     n_components = min(n_components, min(df_numeric.shape))
@@ -88,13 +141,13 @@ def perform_pca(df: pd.DataFrame,
     
     # Create dataframe from results
     pc_columns = [f"PC{i+1}" for i in range(n_components)]
-    pca_results = pd.DataFrame(data=principal_components, columns=pc_columns)
+    pca_results = pd.DataFrame(data=principal_components, columns=pc_columns, index=df_numeric_clean.index)
     
     # Calculate loadings (feature contributions to each component)
     loadings = pd.DataFrame(
         data=pca.components_.T,
         columns=pc_columns,
-        index=df_numeric.columns
+        index=df_numeric_clean.columns
     )
     
     return pca_results, loadings, pca.explained_variance_ratio_
@@ -118,9 +171,12 @@ def perform_tsne(df: pd.DataFrame,
     # Ensure we only use numeric columns
     df_numeric = df.select_dtypes(include=['number'])
     
+    # Handle missing values by dropping rows with any NaN values
+    df_numeric_clean = df_numeric.dropna()
+    
     # Scale the data
     scaler = StandardScaler()
-    scaled_data = scaler.fit_transform(df_numeric)
+    scaled_data = scaler.fit_transform(df_numeric_clean)
     
     # Perform t-SNE
     tsne = TSNE(
@@ -133,8 +189,8 @@ def perform_tsne(df: pd.DataFrame,
     
     tsne_results = tsne.fit_transform(scaled_data)
     
-    # Create dataframe from results
-    tsne_df = pd.DataFrame(data=tsne_results, columns=['TSNE1', 'TSNE2'])
+    # Create dataframe from results with original indices preserved
+    tsne_df = pd.DataFrame(data=tsne_results, columns=['TSNE1', 'TSNE2'], index=df_numeric_clean.index)
     
     return tsne_df
 
@@ -155,9 +211,12 @@ def perform_umap_reduction(df: pd.DataFrame,
     # Ensure we only use numeric columns
     df_numeric = df.select_dtypes(include=['number'])
     
+    # Handle missing values by dropping rows with any NaN values
+    df_numeric_clean = df_numeric.dropna()
+    
     # Scale the data
     scaler = StandardScaler()
-    scaled_data = scaler.fit_transform(df_numeric)
+    scaled_data = scaler.fit_transform(df_numeric_clean)
     
     # Perform UMAP
     reducer = umap.UMAP(
@@ -168,8 +227,8 @@ def perform_umap_reduction(df: pd.DataFrame,
     
     umap_results = reducer.fit_transform(scaled_data)
     
-    # Create dataframe from results
-    umap_df = pd.DataFrame(data=umap_results, columns=['UMAP1', 'UMAP2'])
+    # Create dataframe from results with original indices preserved
+    umap_df = pd.DataFrame(data=umap_results, columns=['UMAP1', 'UMAP2'], index=df_numeric_clean.index)
     
     return umap_df
 
@@ -188,18 +247,21 @@ def perform_kmeans(df: pd.DataFrame,
     # Ensure we only use numeric columns
     df_numeric = df.select_dtypes(include=['number'])
     
+    # Handle missing values by dropping rows with any NaN values
+    df_numeric_clean = df_numeric.dropna()
+    
     # Scale the data
     scaler = StandardScaler()
-    scaled_data = scaler.fit_transform(df_numeric)
+    scaled_data = scaler.fit_transform(df_numeric_clean)
     
     # Perform KMeans clustering
     kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
     clusters = kmeans.fit_predict(scaled_data)
     
-    # Create dataframe with cluster assignments
+    # Create dataframe with cluster assignments and preserve original indices
     cluster_df = pd.DataFrame({
         'Cluster': clusters
-    })
+    }, index=df_numeric_clean.index)
     
     return cluster_df, kmeans
 
@@ -220,18 +282,21 @@ def perform_dbscan(df: pd.DataFrame,
     # Ensure we only use numeric columns
     df_numeric = df.select_dtypes(include=['number'])
     
+    # Handle missing values by dropping rows with any NaN values
+    df_numeric_clean = df_numeric.dropna()
+    
     # Scale the data
     scaler = StandardScaler()
-    scaled_data = scaler.fit_transform(df_numeric)
+    scaled_data = scaler.fit_transform(df_numeric_clean)
     
     # Perform DBSCAN clustering
     dbscan = DBSCAN(eps=eps, min_samples=min_samples)
     clusters = dbscan.fit_predict(scaled_data)
     
-    # Create dataframe with cluster assignments
+    # Create dataframe with cluster assignments and preserve original indices
     cluster_df = pd.DataFrame({
         'Cluster': clusters
-    })
+    }, index=df_numeric_clean.index)
     
     return cluster_df
 
@@ -364,6 +429,200 @@ def perform_anova(df: pd.DataFrame,
     
     return result, pd.DataFrame(group_stats)
 
+def configure_plotly_figure(fig, height=3000, margin=None):
+    """
+    Configure a plotly figure with optimal display settings.
+    
+    Args:
+        fig: Plotly figure object
+        height: Figure height in pixels
+        margin: Optional custom margin dictionary
+        
+    Returns:
+        Updated plotly figure
+    """
+    # Set default margins if not provided
+    if margin is None:
+        margin = dict(l=80, r=80, t=100, b=80)
+    
+    # Update figure layout
+    fig.update_layout(
+        height=height,
+        margin=margin,
+        autosize=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        xaxis=dict(tickangle=-45),  # Angle tick labels to prevent overlap with long names
+        font=dict(size=12)  # Slightly larger font
+    )
+    
+    # For box plots specifically, check if we need to enhance them further
+    if fig.data and hasattr(fig.data[0], 'type') and fig.data[0].type == 'box':
+        # Get axis labels
+        if hasattr(fig.layout, 'xaxis') and hasattr(fig.layout.xaxis, 'title') and hasattr(fig.layout.xaxis.title, 'text'):
+            x_label = fig.layout.xaxis.title.text
+            # If we have categorical data on x-axis, check for long category names
+            if x_label and len(x_label) > 15:
+                fig.update_layout(
+                    xaxis=dict(
+                        tickangle=-90,  # Vertical labels for very long names
+                        tickfont=dict(size=10)  # Slightly smaller font for long labels
+                    ),
+                    margin=dict(b=150)  # Extra bottom margin for vertical labels
+                )
+    
+    return fig
+
+
+def enhance_all_plotly_charts():
+    """
+    Monkeypatch Streamlit's plotly_chart function to automatically enhance all charts.
+    This ensures all charts in the app have consistent and improved display properties.
+    
+    Applies improvements to all charts without having to modify each chart individually.
+    """
+    original_plotly_chart = st.plotly_chart
+    
+    def enhanced_plotly_chart(fig, *args, **kwargs):
+        # Automatically enhance the figure if it's a plotly figure
+        if hasattr(fig, 'update_layout'):
+            # Apply size multipliers from session state if they exist
+            height_multiplier = getattr(st.session_state, 'figure_height_multiplier', 1.0)
+            width_multiplier = getattr(st.session_state, 'figure_width_multiplier', 1.0)
+            
+            # Default height based on complexity - use larger default height
+            height = 800  # Increased default height
+            if hasattr(fig, 'data') and len(fig.data) > 0:
+                # More data traces = taller figure
+                height = max(800, 600 + 60 * len(fig.data))  # Increased base and multiplier
+            
+            # Apply user's height multiplier
+            height = int(height * height_multiplier)
+            
+            # For heatmaps (correlation plots, etc.)
+            if fig.data and hasattr(fig.data[0], 'type') and fig.data[0].type in ['heatmap', 'imshow']:
+                if hasattr(fig.data[0], 'z') and hasattr(fig.data[0].z, 'shape'):
+                    # Size based on matrix dimensions
+                    rows, cols = fig.data[0].z.shape
+                    # Make correlation matrices much larger
+                    height = max(900, 400 + 60 * rows)  # Increased to ensure readability
+                    # Apply user's height multiplier
+                    height = int(height * height_multiplier)
+                    # Adjust margins to give more space to the actual heatmap
+                    margin = dict(l=150, r=150, t=100, b=150)  # Increased margins
+                    fig = configure_plotly_figure(fig, height=height, margin=margin)
+                    
+                    # Set width explicitly for heatmaps to prevent labels from taking over
+                    width = 1000 * width_multiplier
+                    fig.update_layout(width=width)
+            
+            # For scatter plots
+            elif fig.data and hasattr(fig.data[0], 'type') and fig.data[0].type == 'scatter':
+                # Default configuration with user's height multiplier
+                fig = configure_plotly_figure(fig, height=int(600 * height_multiplier))
+                # Set width for scatter plots
+                width = 900 * width_multiplier
+                fig.update_layout(width=width)
+            
+            # For box plots
+            elif fig.data and hasattr(fig.data[0], 'type') and fig.data[0].type == 'box':
+                # Special handling for box plots with more bottom margin
+                fig = configure_plotly_figure(fig, height=int(600 * height_multiplier), 
+                                           margin=dict(l=80, r=80, t=100, b=120))
+                # Set width for box plots
+                width = 900 * width_multiplier
+                fig.update_layout(width=width)
+            
+            # For all other plot types, apply standard configuration
+            else:
+                fig = configure_plotly_figure(fig, height=int(600 * height_multiplier))
+                # Set width for other plots
+                width = 800 * width_multiplier
+                fig.update_layout(width=width)
+            
+        # Call the original function with our enhanced figure
+        return original_plotly_chart(fig, *args, **kwargs)
+    
+    # Replace Streamlit's plotly_chart with our enhanced version
+    st.plotly_chart = enhanced_plotly_chart
+
+def check_missing_data(df: pd.DataFrame, selected_cols: List[str]) -> Dict:
+    """
+    Check for missing data in selected columns and prepare a report.
+    
+    Args:
+        df: Input dataframe
+        selected_cols: List of column names to check
+        
+    Returns:
+        Dict: Missing data information with counts and percentages
+    """
+    # Extract just the columns we're interested in
+    df_subset = df[selected_cols]
+    
+    # Count missing values per column
+    missing_counts = df_subset.isna().sum()
+    
+    # Count rows with any missing values
+    rows_with_missing = df_subset.isna().any(axis=1).sum()
+    
+    # Complete rows (no missing values)
+    complete_rows = len(df_subset) - rows_with_missing
+    
+    # Calculate percentage of missing data
+    missing_percentages = (missing_counts / len(df_subset) * 100).round(2)
+    
+    # Find columns with highest missing values
+    columns_most_missing = missing_counts.sort_values(ascending=False).head(3).to_dict()
+    
+    # Prepare the report
+    report = {
+        "has_missing_data": rows_with_missing > 0,
+        "total_rows": len(df_subset),
+        "rows_with_missing": rows_with_missing,
+        "complete_rows": complete_rows,
+        "missing_percentage": (rows_with_missing / len(df_subset) * 100).round(2),
+        "column_missing_counts": missing_counts.to_dict(),
+        "column_missing_percentages": missing_percentages.to_dict(),
+        "columns_most_missing": columns_most_missing
+    }
+    
+    return report
+
+
+def display_missing_data_warning(report: Dict) -> None:
+    """
+    Display a warning and detailed information about missing data.
+    
+    Args:
+        report: Missing data report from check_missing_data function
+    """
+    if report["has_missing_data"]:
+        st.warning(
+            f"{report['rows_with_missing']} rows ({report['missing_percentage']:.1f}% of data) "
+            f"contain missing values and will be excluded from analysis. "
+            f"Only {report['complete_rows']} complete rows will be used."
+        )
+        
+        # Show detailed info in an expander
+        with st.expander("View details on missing data"):
+            st.markdown("**Missing data summary:**")
+            st.markdown(
+                f"- Total rows: {report['total_rows']}\n"
+                f"- Rows with missing values: {report['rows_with_missing']} ({report['missing_percentage']:.1f}%)\n"
+                f"- Complete rows: {report['complete_rows']} ({100-report['missing_percentage']:.1f}%)"
+            )
+            
+            st.markdown("**Missing values by column:**")
+            for col, count in report["column_missing_counts"].items():
+                if count > 0:
+                    percentage = report["column_missing_percentages"][col]
+                    st.markdown(f"- {col}: {count} missing values ({percentage:.1f}%)")
+                    
+            # Provide some advice
+            if report["missing_percentage"] > 30:
+                st.markdown("⚠️ **High proportion of missing data may affect results significantly.**")
+                st.markdown("Consider using imputation techniques or removing columns with too many missing values.")
+
 def advanced_eda_ui(df: pd.DataFrame) -> None:
     """
     Streamlit UI for advanced exploratory data analysis.
@@ -371,7 +630,34 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
     Args:
         df: Input dataframe
     """
+    # Enable enhanced charts for better visualization
+    enhance_all_plotly_charts()
+    
     st.title("Advanced Exploratory Data Analysis")
+    
+    # Add figure size controls in an expander
+    with st.sidebar.expander("Figure Size Settings", expanded=False):
+        st.caption("Adjust visualization sizes to improve readability")
+        
+        # Store settings in session state to persist between reruns
+        if "figure_height_multiplier" not in st.session_state:
+            st.session_state.figure_height_multiplier = 1.0
+        if "figure_width_multiplier" not in st.session_state:
+            st.session_state.figure_width_multiplier = 1.0
+            
+        # Let user adjust figure size multipliers
+        height_mult = st.slider("Height multiplier", 0.5, 2.0, 
+                               st.session_state.figure_height_multiplier, 0.1,
+                               help="Increase to make figures taller")
+        width_mult = st.slider("Width multiplier", 0.5, 2.0, 
+                              st.session_state.figure_width_multiplier, 0.1,
+                              help="Increase to make figures wider")
+        
+        # Save settings to session state
+        if height_mult != st.session_state.figure_height_multiplier:
+            st.session_state.figure_height_multiplier = height_mult
+        if width_mult != st.session_state.figure_width_multiplier:
+            st.session_state.figure_width_multiplier = width_mult
     
     if df is None or df.empty:
         st.warning("Please upload and clean a dataset first.")
@@ -393,7 +679,6 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
         # Get numeric columns that are not always None/NaN
         numeric_cols = [col for col in df.select_dtypes(include=['number']).columns 
                         if not df[col].isna().all()]
-        st.write(df[numeric_cols].isna().sum())
         
 
 
@@ -417,10 +702,35 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
                 )
                 
                 # Calculate correlation and p-values
-                corr_matrix, p_values = calculate_correlation_with_pvalues(
+                corr_matrix, p_values, missing_data_info = calculate_correlation_with_pvalues(
                     df[selected_cols], 
                     method=corr_method.lower()
                 )
+                
+                # Display warning if data was dropped due to missing values
+                if missing_data_info["has_dropped_data"]:
+                    st.warning(
+                        "Some rows were excluded from correlation analysis due to missing values. "
+                        "Each correlation pair uses only rows where both variables have non-missing values."
+                    )
+                    
+                    # Show detailed info in an expander
+                    with st.expander("View details on missing data"):
+                        st.markdown("**Column pairs with missing data:**")
+                        
+                        for pair, info in missing_data_info["dropped_pairs"].items():
+                            col_i, col_j = info["col_i"], info["col_j"]
+                            st.markdown(
+                                f"- **{pair}**: Used {info['used_samples']} out of {info['total_samples']} rows "
+                                f"({info['dropped_samples']} rows excluded). "
+                                f"Original non-missing counts: {col_i}: {info['original_count_i']}, "
+                                f"{col_j}: {info['original_count_j']}"
+                            )
+                        
+                        if missing_data_info["columns_with_most_missing"]:
+                            st.markdown("**Columns with most missing values:**")
+                            for col, count in missing_data_info["columns_with_most_missing"].items():
+                                st.markdown(f"- {col}: {len(df) - count} missing values")
                 
                 # Display correlation heatmap
                 st.write(f"**{corr_method} Correlation Heatmap:**")
@@ -431,6 +741,18 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
                     color_continuous_scale="RdBu_r",
                     title=f"{corr_method} Correlation"
                 )
+                # Ensure figure is displayed with plenty of space for long column names
+                # Significantly increase height for better visualization
+                fig = configure_plotly_figure(fig, 
+                                           height=max(1000, 500 + 70 * len(corr_matrix.columns)),
+                                           margin=dict(l=150, r=150, t=100, b=150))
+                
+                # Make the actual visualization area larger relative to the labels
+                fig.update_layout(
+                    width=1200,  # Set a fixed width
+                    height=max(1000, 500 + 70 * len(corr_matrix.columns))  # Match height from above
+                )
+                
                 st.plotly_chart(fig, use_container_width=True)
                 
                 # Display p-values heatmap
@@ -445,6 +767,18 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
                     color_continuous_scale="Viridis_r",  # Reversed so dark = small p-value
                     title=f"P-values for {corr_method} Correlation"
                 )
+                # Apply consistent sizing to p-values heatmap
+                # Significantly increase height for better visualization
+                fig_p = configure_plotly_figure(fig_p, 
+                                             height=max(1000, 500 + 70 * len(p_values_vis.columns)),
+                                             margin=dict(l=150, r=150, t=100, b=150))
+                
+                # Make the actual visualization area larger relative to the labels
+                fig_p.update_layout(
+                    width=1200,  # Set a fixed width
+                    height=max(1000, 500 + 70 * len(p_values_vis.columns))  # Match height from above
+                )
+                
                 st.plotly_chart(fig_p, use_container_width=True)
                 
                 # Display significant correlations
@@ -455,7 +789,8 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
                 
                 for i in range(len(selected_cols)):
                     for j in range(i+1, len(selected_cols)):
-                        if p_values.iloc[i, j] < 0.05:
+                        # Check if p-value and correlation are valid (not NaN) and significant
+                        if not pd.isna(p_values.iloc[i, j]) and p_values.iloc[i, j] < 0.05 and not pd.isna(corr_matrix.iloc[i, j]):
                             significant_corrs.append({
                                 'Variable 1': selected_cols[i],
                                 'Variable 2': selected_cols[j],
@@ -471,100 +806,6 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
                 else:
                     st.info("No statistically significant correlations found.")
                 
-        #         # Correlation vs. Causation Helper
-        #         st.subheader("Correlation vs. Causation Helper")
-        #         st.write("""
-        #         Remember that correlation does not imply causation. Consider these potential confounding explanations:
-                
-        #         1. **Common Cause**: Both variables might be affected by a third variable
-        #         2. **Reverse Causality**: The direction of cause and effect might be reversed
-        #         3. **Coincidence**: Especially with small samples, correlations can occur by chance
-        #         4. **Indirect Relationship**: Variables may be connected through a chain of relationships
-                
-        #         Consider stratifying your data by potential confounding variables to check if correlations hold across different groups.
-        #         """)
-                
-        #         # Allow selection of variables and potential confounders
-        #         if len(significant_corrs) > 0 and len(df.columns) > 2:
-        #             st.write("**Explore Potential Confounding:**")
-                    
-        #             var_options = [f"{row['Variable 1']} vs {row['Variable 2']}" for row in significant_corrs]
-        #             selected_pair = st.selectbox("Select a correlation to explore:", var_options)
-                    
-        #             if selected_pair:
-        #                 var1, var2 = selected_pair.split(" vs ")
-                        
-        #                 # Select potential confounder
-        #                 other_cols = [col for col in df.columns if col not in [var1, var2]]
-        #                 confounder = st.selectbox("Select potential confounder:", other_cols)
-                        
-        #                 if pd.api.types.is_numeric_dtype(df[confounder]):
-        #                     # For numeric confounders, create segments
-        #                     n_bins = st.slider("Number of bins for confounder:", 2, 5, 3)
-                            
-        #                     df['confounder_bin'] = pd.qcut(df[confounder], q=n_bins, duplicates='drop')
-                            
-        #                     # Create scatter plot colored by bins
-        #                     fig = px.scatter(
-        #                         df, 
-        #                         x=var1,
-        #                         y=var2,
-        #                         color='confounder_bin',
-        #                         title=f"{var2} vs {var1}, stratified by {confounder}"
-        #                     )
-        #                     st.plotly_chart(fig, use_container_width=True)
-                            
-        #                     # Show correlations within each bin
-        #                     st.write("**Correlations within strata:**")
-                            
-        #                     strata_corrs = []
-        #                     for bin_val in df['confounder_bin'].unique():
-        #                         bin_df = df[df['confounder_bin'] == bin_val]
-        #                         if len(bin_df) > 5:  # Need sufficient data for correlation
-        #                             bin_corr = bin_df[[var1, var2]].corr(method=corr_method.lower()).iloc[0, 1]
-        #                             strata_corrs.append({
-        #                                 'Stratum': str(bin_val),
-        #                                 'Correlation': bin_corr,
-        #                                 'Sample Size': len(bin_df)
-        #                             })
-                            
-        #                     if strata_corrs:
-        #                         st.dataframe(pd.DataFrame(strata_corrs))
-        #                 else:
-        #                     # For categorical confounders
-        #                     confounder_vals = df[confounder].unique()
-                            
-        #                     if len(confounder_vals) <= 10:  # Only if reasonably few categories
-        #                         # Create scatter plot colored by category
-        #                         fig = px.scatter(
-        #                             df, 
-        #                             x=var1,
-        #                             y=var2,
-        #                             color=confounder,
-        #                             title=f"{var2} vs {var1}, colored by {confounder}"
-        #                         )
-        #                         st.plotly_chart(fig, use_container_width=True)
-                                
-        #                         # Show correlations within each category
-        #                         st.write("**Correlations within groups:**")
-                                
-        #                         group_corrs = []
-        #                         for group in confounder_vals:
-        #                             group_df = df[df[confounder] == group]
-        #                             if len(group_df) > 5:  # Need sufficient data for correlation
-        #                                 group_corr = group_df[[var1, var2]].corr(method=corr_method.lower()).iloc[0, 1]
-        #                                 group_corrs.append({
-        #                                     'Group': str(group),
-        #                                     'Correlation': group_corr,
-        #                                     'Sample Size': len(group_df)
-        #                                 })
-                                
-        #                         if group_corrs:
-        #                             st.dataframe(pd.DataFrame(group_corrs))
-        #     else:
-        #         st.warning("Please select at least 2 columns for correlation analysis.")
-        # else:
-        #     st.warning("Need at least 2 numeric columns for correlation analysis.")
     
     # Tab 2: Dimensionality Reduction
     with tab2:
@@ -600,6 +841,10 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
                     n_components = st.slider("Number of components:", 2, min(10, len(selected_cols)), 2)
                     standardize = st.checkbox("Standardize data", value=True)
                     
+                    # Check for missing data
+                    missing_data_report = check_missing_data(df, selected_cols)
+                    display_missing_data_warning(missing_data_report)
+                    
                     # Perform PCA
                     try:
                         pca_results, loadings, explained_var = perform_pca(
@@ -609,13 +854,19 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
                         )
                         
                         # Plot first two components
+                        # For coloring, we need to use the same indices as the PCA results
+                        # Only use the color by column for the rows that actually made it into the PCA results
+                        color_data = df.loc[pca_results.index, color_by] if color_by else None
+                        
                         fig = px.scatter(
                             pca_results, 
                             x='PC1', 
                             y='PC2',
                             title=f"PCA: First two components explain {100 * sum(explained_var[:2]):.1f}% of variance",
-                            color=df[color_by] if color_by else None
+                            color=color_data
                         )
+                        # Configure PCA scatter plot
+                        fig = configure_plotly_figure(fig, height=600)
                         st.plotly_chart(fig, use_container_width=True)
                         
                         # Show explained variance
@@ -649,6 +900,14 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
                             yaxis=dict(zeroline=True, zerolinewidth=1, zerolinecolor='black')
                         )
                         
+                        # Configure loadings plot with additional space for text labels
+                        fig_loadings = configure_plotly_figure(fig_loadings, 
+                                                           height=600,
+                                                           margin=dict(l=80, r=80, t=100, b=80))
+                        # Adjust to ensure text labels are visible
+                        if len(loadings) > 10:
+                            fig_loadings.update_layout(height=700)
+                            
                         st.plotly_chart(fig_loadings, use_container_width=True)
                     except Exception as e:
                         st.error(f"Error performing PCA: {str(e)}")
@@ -670,6 +929,10 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
                     
                     n_iter = st.slider("Number of iterations:", 250, 2000, 1000, 250)
                     
+                    # Check for missing data
+                    missing_data_report = check_missing_data(df, selected_cols)
+                    display_missing_data_warning(missing_data_report)
+                    
                     # Perform t-SNE
                     if st.button("Run t-SNE"):
                         try:
@@ -682,13 +945,19 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
                                 )
                                 
                                 # Plot t-SNE results
+                                # For coloring, we need to use the same indices as the t-SNE results
+                                # Only use the color by column for the rows that actually made it into the t-SNE results
+                                color_data = df.loc[tsne_results.index, color_by] if color_by else None
+                                
                                 fig = px.scatter(
                                     tsne_results, 
                                     x='TSNE1', 
                                     y='TSNE2',
                                     title="t-SNE Projection",
-                                    color=df[color_by] if color_by else None
+                                    color=color_data
                                 )
+                                # Configure t-SNE plot
+                                fig = configure_plotly_figure(fig, height=650)
                                 st.plotly_chart(fig, use_container_width=True)
                                 
                                 st.success("t-SNE completed successfully!")
@@ -710,6 +979,10 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
                     with col2:
                         min_dist = st.slider("Minimum distance:", 0.0, 1.0, 0.1, 0.05)
                     
+                    # Check for missing data
+                    missing_data_report = check_missing_data(df, selected_cols)
+                    display_missing_data_warning(missing_data_report)
+                    
                     # Perform UMAP
                     if st.button("Run UMAP"):
                         try:
@@ -721,13 +994,19 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
                                 )
                                 
                                 # Plot UMAP results
+                                # For coloring, we need to use the same indices as the UMAP results
+                                # Only use the color by column for the rows that actually made it into the UMAP results
+                                color_data = df.loc[umap_results.index, color_by] if color_by else None
+                                
                                 fig = px.scatter(
                                     umap_results, 
                                     x='UMAP1', 
                                     y='UMAP2',
                                     title="UMAP Projection",
-                                    color=df[color_by] if color_by else None
+                                    color=color_data
                                 )
+                                # Configure UMAP plot
+                                fig = configure_plotly_figure(fig, height=650)
                                 st.plotly_chart(fig, use_container_width=True)
                                 
                                 st.success("UMAP completed successfully!")
@@ -765,6 +1044,10 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
                     # K-Means specific parameters
                     n_clusters = st.slider("Number of clusters:", 2, 10, 3)
                     
+                    # Check for missing data
+                    missing_data_report = check_missing_data(df, selected_cols)
+                    display_missing_data_warning(missing_data_report)
+                    
                     # Perform K-Means
                     if st.button("Run K-Means"):
                         try:
@@ -773,13 +1056,18 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
                                 n_clusters=n_clusters
                             )
                             
+                            # Get the data with only the rows actually used in clustering (no NaNs)
+                            # Take only rows that were actually clustered (those with indices in cluster_assignments)
+                            filtered_df = df.loc[cluster_assignments.index]
+                            
                             # Add cluster assignments to dataframe for visualization
-                            vis_df = df[selected_cols].copy()
+                            vis_df = filtered_df[selected_cols].copy()
                             vis_df['Cluster'] = cluster_assignments['Cluster']
                             
                             # Perform PCA for visualization if needed
                             if len(selected_cols) > 2:
-                                pca_results, _, _ = perform_pca(df[selected_cols])
+                                # Use the filtered_df that contains only rows without NaNs
+                                pca_results, _, _ = perform_pca(filtered_df[selected_cols])
                                 vis_df['PC1'] = pca_results['PC1']
                                 vis_df['PC2'] = pca_results['PC2']
                                 x_col, y_col = 'PC1', 'PC2'
@@ -797,14 +1085,20 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
                                 title=title,
                                 color_continuous_scale=px.colors.qualitative.G10
                             )
+                            # Configure clustering plot
+                            fig = configure_plotly_figure(fig, height=650)
                             st.plotly_chart(fig, use_container_width=True)
                             
                             # Show cluster centers if PCA was used
                             if len(selected_cols) > 2:
+                                # Filter out rows with NaN values - use the same data that was used for clustering
+                                df_for_pca = df[selected_cols].dropna()
+                                
                                 # Transform cluster centers to PCA space
                                 centers_pca = StandardScaler().fit_transform(kmeans_model.cluster_centers_)
                                 pca = PCA(n_components=2)
-                                pca.fit(df[selected_cols])
+                                # Fit PCA on the same clean data used for clustering
+                                pca.fit(df_for_pca)
                                 centers_pca = pca.transform(centers_pca)
                                 
                                 # Add cluster centers to plot
@@ -816,12 +1110,14 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
                                         marker=dict(
                                             symbol='x',
                                             color='black',
-                                            size=12,
+                                            size=16,  # Larger cluster center markers
                                             line=dict(width=2)
                                         ),
                                         name='Cluster Centers'
                                     )
                                 )
+                                # Configure with cluster centers
+                                fig = configure_plotly_figure(fig, height=650)
                                 st.plotly_chart(fig, use_container_width=True)
                             
                             # Show cluster statistics
@@ -856,6 +1152,10 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
                     with col2:
                         min_samples = st.slider("Minimum samples in neighborhood:", 2, 20, 5)
                     
+                    # Check for missing data
+                    missing_data_report = check_missing_data(df, selected_cols)
+                    display_missing_data_warning(missing_data_report)
+                    
                     # Perform DBSCAN
                     if st.button("Run DBSCAN"):
                         try:
@@ -865,13 +1165,18 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
                                 min_samples=min_samples
                             )
                             
+                            # Get the data with only the rows actually used in clustering (no NaNs)
+                            # Take only rows that were actually clustered (those with indices in cluster_assignments)
+                            filtered_df = df.loc[cluster_assignments.index]
+                            
                             # Add cluster assignments to dataframe for visualization
-                            vis_df = df[selected_cols].copy()
+                            vis_df = filtered_df[selected_cols].copy()
                             vis_df['Cluster'] = cluster_assignments['Cluster']
                             
                             # Perform PCA for visualization if needed
                             if len(selected_cols) > 2:
-                                pca_results, _, _ = perform_pca(df[selected_cols])
+                                # Use the filtered_df that contains only rows without NaNs
+                                pca_results, _, _ = perform_pca(filtered_df[selected_cols])
                                 vis_df['PC1'] = pca_results['PC1']
                                 vis_df['PC2'] = pca_results['PC2']
                                 x_col, y_col = 'PC1', 'PC2'
@@ -889,6 +1194,20 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
                                 title=title,
                                 color_continuous_scale=px.colors.qualitative.G10
                             )
+                            
+                            # Configure DBSCAN plot
+                            fig = configure_plotly_figure(fig, height=650)
+                            
+                            # If there are outliers, make them more visible
+                            if -1 in vis_df['Cluster'].unique():
+                                # Find the color index for -1
+                                outlier_color = 'black'
+                                fig.update_traces(
+                                    marker=dict(
+                                        size=8,  # Slightly larger markers for better visibility
+                                        opacity=0.7
+                                    )
+                                )
                             
                             st.plotly_chart(fig, use_container_width=True)
                             
@@ -925,13 +1244,6 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
         if not df[col].isna().all()]
         
         if numeric_cols and categorical_cols:
-            # Select test type
-            test_type = st.radio(
-                "Select test type:",
-                ["T-Test (compare two groups)", "ANOVA (compare multiple groups)"],
-                horizontal=True
-            )
-            
             # Select columns for test
             col1, col2 = st.columns(2)
             
@@ -946,10 +1258,30 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
                     "Select categorical variable (groups):",
                     options=categorical_cols
                 )
+                
+            # Auto-determine the appropriate test based on number of unique values in categorical variable
+            if categorical_col:
+                n_unique_groups = len(df[categorical_col].dropna().unique())
+                
+                if n_unique_groups < 2:
+                    st.warning("The selected categorical variable needs at least 2 groups for hypothesis testing.")
+                    test_type = None
+                elif n_unique_groups == 2:
+                    test_type = "T-Test"
+                    st.info(f"✅ **T-Test automatically selected** because '{categorical_col}' has exactly 2 groups.")
+                else:
+                    test_type = "ANOVA"
+                    st.info(f"✅ **ANOVA automatically selected** because '{categorical_col}' has {n_unique_groups} groups.")
+                
+                # Display the unique values/groups that will be compared
+                unique_values = df[categorical_col].dropna().unique()
+                st.write(f"**Groups to compare:** {', '.join(str(val) for val in unique_values)}")
+            else:
+                test_type = None
             
-            if test_type == "T-Test (compare two groups)":
+            if test_type == "T-Test":
                 # Perform T-Test
-                if st.button("Run T-Test"):
+                if st.button("Run T-Test Analysis"):
                     try:
                         results = perform_ttest(df, numeric_col, categorical_col)
                         
@@ -974,9 +1306,9 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
                     except Exception as e:
                         st.error(f"Error performing T-Test: {str(e)}")
             
-            elif test_type == "ANOVA (compare multiple groups)":
+            elif test_type == "ANOVA":
                 # Perform ANOVA
-                if st.button("Run ANOVA"):
+                if st.button("Run ANOVA Analysis"):
                     try:
                         anova_results, group_stats = perform_anova(df, numeric_col, categorical_col)
                         
@@ -1031,5 +1363,22 @@ def advanced_eda_ui(df: pd.DataFrame) -> None:
                             st.warning(anova_results['error'])
                     except Exception as e:
                         st.error(f"Error performing ANOVA: {str(e)}")
+                        
+            elif test_type is None:
+                st.warning("Please select a categorical column with at least 2 groups to perform hypothesis testing.")
         else:
             st.warning("Need both numeric and categorical columns for hypothesis testing.")
+        
+        # Add information about hypothesis tests
+            with st.expander("ℹ️ About Statistical Tests", expanded=False):
+                st.markdown("""
+                **Statistical Test Selection:**
+                - **T-Test** is used to compare means between exactly **two groups** (binary categorical variables)
+                - **ANOVA** (Analysis of Variance) is used when comparing means across **three or more groups**
+                
+                The appropriate test is automatically selected based on the number of unique values in your chosen categorical variable.
+                
+                **Understanding p-values:**
+                - p < 0.05 indicates statistically significant differences between groups
+                - Effect size measures the strength of the relationship (small, medium, or large)
+                """)
