@@ -35,15 +35,19 @@ def get_data_types_summary(df: pd.DataFrame) -> Dict[str, List[str]]:
         dtype = df[col].dtype
         
         if pd.api.types.is_numeric_dtype(df[col]):
+            # Check if it's boolean-like
             if set(df[col].dropna().unique()).issubset({0, 1, True, False}):
                 type_categories['Boolean'].append(col)
             else:
+            # Check if it's integer-like
                 type_categories['Numeric'].append(col)
                 
         elif pd.api.types.is_categorical_dtype(df[col]):
+            # Check if it's a boolean-like categorical
             type_categories['Categorical'].append(col)
             
         elif pd.api.types.is_datetime64_dtype(df[col]):
+            # Check if it's a datetime-like column
             type_categories['DateTime'].append(col)
             
         elif pd.api.types.is_string_dtype(df[col]) or df[col].dtype == 'object':
@@ -667,6 +671,17 @@ def basic_eda_ui(df: pd.DataFrame) -> None:
             except:
                 st.error("Selected x-axis column must be datetime or numeric.")
                 st.stop()
+        
+        # Group data by a categorical column if selected
+        if pd.api.types.is_categorical_dtype(df_temp[x_col]):
+            st.warning("Selected x-axis column is categorical. Grouping by this column may not be meaningful.")
+            group_col = None
+        else:
+            # Allow grouping by another column
+            if len(df_temp.columns) > 1:
+                st.warning("Selected x-axis column is numeric or datetime. You can group by another column if desired.")
+            else:
+                st.warning("No other columns available for grouping. Proceeding without grouping.")
 
         numeric_cols = df_temp.select_dtypes(include='number').columns.tolist()
         if not numeric_cols:
