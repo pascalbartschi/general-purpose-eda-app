@@ -133,14 +133,42 @@ def main():
     if page == "Data Upload":
         df, session_state = upload_data()
         
-        if session_state['upload_success']:
-            # Store the original dataframe
+        if session_state['upload_success'] and df is not None:
+            # Store the original dataframe and ensure it's also ready for cleaning module
             st.session_state['original_df'] = df.copy()
-            st.session_state['df'] = df
+            st.session_state['df'] = df.copy()
+            
+            # Initialize cleaning-specific session state if not already done in upload_data
+            if 'true_original_df' not in st.session_state:
+                st.session_state['true_original_df'] = df.copy()
+            if 'cleaned_df' not in st.session_state:
+                st.session_state['cleaned_df'] = df.copy()
+            if 'features_to_keep' not in st.session_state:
+                st.session_state['features_to_keep'] = list(df.columns)
     
     elif page == "Data Cleaning":
-        if st.session_state['df'] is not None:
-            st.session_state['df'] = clean_data_ui(st.session_state['df'])
+        if st.session_state.get('df') is not None:
+            # Set cleaning page flag
+            st.session_state['page'] = 'cleaning'
+            
+            # Initialize true_original_df if it doesn't exist yet
+            if 'true_original_df' not in st.session_state:
+                st.session_state['true_original_df'] = st.session_state['df'].copy()
+                
+            # Initialize cleaned_df if it doesn't exist yet
+            if 'cleaned_df' not in st.session_state:
+                st.session_state['cleaned_df'] = st.session_state['df'].copy()
+                
+            # Initialize features_to_keep
+            if 'features_to_keep' not in st.session_state:
+                st.session_state['features_to_keep'] = list(st.session_state['df'].columns)
+            
+            # Pass the dataframe to the cleaning UI
+            result_df = clean_data_ui(st.session_state['df'])
+            
+            # Update the main dataframe with the result from cleaning
+            if result_df is not None:
+                st.session_state['df'] = result_df
             
             # Record cleaning steps (this would be updated by the clean_data_ui function)
             # For simplicity, we're just adding a placeholder step here
