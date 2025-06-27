@@ -35,15 +35,19 @@ def get_data_types_summary(df: pd.DataFrame) -> Dict[str, List[str]]:
         dtype = df[col].dtype
         
         if pd.api.types.is_numeric_dtype(df[col]):
+            # Check if it's boolean-like
             if set(df[col].dropna().unique()).issubset({0, 1, True, False}):
                 type_categories['Boolean'].append(col)
             else:
+            # Check if it's integer-like
                 type_categories['Numeric'].append(col)
                 
         elif pd.api.types.is_categorical_dtype(df[col]):
+            # Check if it's a boolean-like categorical
             type_categories['Categorical'].append(col)
             
         elif pd.api.types.is_datetime64_dtype(df[col]):
+            # Check if it's a datetime-like column
             type_categories['DateTime'].append(col)
             
         elif pd.api.types.is_string_dtype(df[col]) or df[col].dtype == 'object':
@@ -324,23 +328,29 @@ def plot_boxplot(df: pd.DataFrame,
 def plot_scatter(df, x_col, y_col, color_col=None):
     title = f"Scatter Plot: {y_col} vs {x_col}"
     if color_col:
+        # Create scatter plot with color grouping
         fig = px.scatter(df, x=x_col, y=y_col, color=color_col, title=title)
     else:
+        # Create scatter plot without color grouping
         fig = px.scatter(df, x=x_col, y=y_col, title=title)
 
     try:
-        x_vals = df[x_col].dropna()
-        y_vals = df[y_col].dropna()
-        common = df[[x_col, y_col]].dropna()
+        x_vals = df[x_col].dropna() # Drop NaN values for x-axis
+        y_vals = df[y_col].dropna() # Drop NaN values for y-axis
+        common = df[[x_col, y_col]].dropna() # Drop rows with NaN in either x or y
         fit_type = st.selectbox("Select fit type:", ["Linear", "Quadratic", "Cubic", "Exponential", "Logarithmic", "Polynomial (n-order)"], index=0)
 
-        if fit_type == "Linear":
+        if fit_type == "Linear": 
+            # Fit a linear regression line
             degree = 1
         elif fit_type == "Quadratic":
+            # Fit a quadratic curve
             degree = 2
         elif fit_type == "Cubic":
+            # Fit a cubic curve
             degree = 3
         elif fit_type == "Exponential":
+            # Fit an exponential curve
             coeffs = np.polyfit(common[x_col], np.log(common[y_col] + 1e-5), 1)
             y_fit = np.exp(coeffs[1] + coeffs[0] * common[x_col])
             fig.add_trace(go.Scatter(x=common[x_col], y=y_fit, mode='lines', name='Exponential Fit'))
@@ -349,6 +359,7 @@ def plot_scatter(df, x_col, y_col, color_col=None):
                                showarrow=False, bgcolor="white")
             return fig
         elif fit_type == "Logarithmic":
+            # Fit a logarithmic curve
             log_x = np.log(common[x_col] + 1e-5)
             coeffs = np.polyfit(log_x, common[y_col], 1)
             y_fit = coeffs[0] * np.log(common[x_col] + 1e-5) + coeffs[1]
@@ -362,7 +373,7 @@ def plot_scatter(df, x_col, y_col, color_col=None):
         else:
             degree = 1
 
-        coeffs = np.polyfit(common[x_col], common[y_col], degree)
+        coeffs = np.polyfit(common[x_col], common[y_col], degree) # Fit polynomial coefficients
         poly = np.poly1d(coeffs)
         x_sorted = np.sort(common[x_col])
         y_fit = poly(x_sorted)
@@ -371,6 +382,7 @@ def plot_scatter(df, x_col, y_col, color_col=None):
         fig.add_annotation(x=0.95, y=0.05, xref="paper", yref="paper", text=f"Corr: {corr:.2f}",
                            showarrow=False, bgcolor="white")
     except Exception as e:
+        # Handle any errors in fitting
         st.warning(f"Could not compute fit: {e}")
 
     return fig
@@ -652,15 +664,17 @@ def basic_eda_ui(df: pd.DataFrame) -> None:
     with tab5:
         st.subheader("Time Series Analysis")
 
-        df_temp = df.copy()
+        df_temp = df.copy() # Make a copy to avoid modifying the original dataframe
 
-        x_col = st.selectbox("Select X-axis (time-like or numeric):", options=df_temp.columns)
+        x_col = st.selectbox("Select X-axis (time-like or numeric):", options=df_temp.columns) # Select column for X-axis
         
         if pd.api.types.is_datetime64_any_dtype(df_temp[x_col]):
+            # If datetime, convert to datetime if not already
             df_temp['x_val'] = df_temp[x_col]
             x_label = x_col
         else:
             try:
+                # Try converting to numeric if not datetime
                 df_temp['x_val'] = pd.to_numeric(df_temp[x_col])
                 x_unit = st.text_input(f"Enter unit for x-axis [{x_col}]:", value="units")
                 x_label = f"{x_col} [{x_unit}]"
@@ -670,18 +684,63 @@ def basic_eda_ui(df: pd.DataFrame) -> None:
 
         numeric_cols = df_temp.select_dtypes(include='number').columns.tolist()
         if not numeric_cols:
+            # If no numeric columns, show warning and stop
             st.warning("No numeric columns available for Y-axis.")
             st.stop()
 
-        y_col = st.selectbox("Select Y-axis (numeric):", options=numeric_cols)
+        y_col = st.selectbox("Select Y-axis (numeric):", options=numeric_cols) # Select column for Y-axis
         df_temp['y_val'] = df_temp[y_col]
 
-        # Drop missing values
-        df_temp = df_temp[['x_val', 'y_val']].dropna().sort_values('x_val')
+        # Optional grouping by category
+        st.subheader("Grouping Options")
+        categorical_cols = df_temp.select_dtypes(exclude=['number', 'datetime64']).columns.tolist()
+        # Also include columns that might be categorical but stored as object/string
+        for col in df_temp.columns:
+            if col not in categorical_cols and df_temp[col].dtype == 'object':
+                if df_temp[col].nunique() <= 50:  # Reasonable number of categories
+                    categorical_cols.append(col)
+        
+        group_col = None
+        if categorical_cols:
+            # Option to group by a categorical column
+            use_grouping = st.checkbox("Group by category column?", value=False)
+            if use_grouping:
+                group_col = st.selectbox("Select column for grouping:", options=categorical_cols)
+                
+                # Option to select specific categories
+                if group_col:
+                    unique_categories = df_temp[group_col].unique()
+                    st.write(f"Found {len(unique_categories)} unique categories in '{group_col}'")
+                    
+                    if len(unique_categories) > 20:
+                        st.warning(f"Large number of categories ({len(unique_categories)}). Consider selecting specific ones below.")
+                    
+                    # Allow user to select specific categories
+                    selected_categories = st.multiselect(
+                        f"Select specific categories from '{group_col}' (leave empty for all):",
+                        options=unique_categories,
+                        default=unique_categories[:min(10, len(unique_categories))]  # Default to first 10
+                    )
+                    
+                    if selected_categories:
+                        df_temp = df_temp[df_temp[group_col].isin(selected_categories)]
 
-        # Plotting
-        fig = px.line(df_temp, x='x_val', y='y_val', title=f"{y_col} vs {x_col}",
-                    labels={'x_val': x_label, 'y_val': y_col})
+        # Prepare data for plotting
+        if group_col:
+            # Keep the grouping column along with x and y values
+            df_temp = df_temp[['x_val', 'y_val', group_col]].dropna().sort_values('x_val')
+            
+            # Plotting with grouping
+            fig = px.line(df_temp, x='x_val', y='y_val', color=group_col,
+                        title=f"{y_col} vs {x_col} (grouped by {group_col})",
+                        labels={'x_val': x_label, 'y_val': y_col, group_col: group_col})
+        else:
+            # Drop missing values
+            df_temp = df_temp[['x_val', 'y_val']].dropna().sort_values('x_val')
+            
+            # Plotting without grouping
+            fig = px.line(df_temp, x='x_val', y='y_val', title=f"{y_col} vs {x_col}",
+                        labels={'x_val': x_label, 'y_val': y_col})
         
         st.plotly_chart(fig, use_container_width=True)
 
@@ -692,10 +751,20 @@ def basic_eda_ui(df: pd.DataFrame) -> None:
 
         # Optional rolling mean
         window = st.slider("Rolling Mean Window (points):", min_value=1, max_value=min(100, len(df_temp)), value=5)
-        df_temp['rolling_mean'] = df_temp['y_val'].rolling(window=window).mean()
-
-        fig2 = px.line(df_temp, x='x_val', y='rolling_mean', title=f"{y_col} - Rolling Mean ({window} points)",
-                    labels={'x_val': x_label, 'rolling_mean': f"{y_col} (Rolling Mean)"})
+        
+        if group_col:
+            # Calculate rolling mean for each group
+            df_temp['rolling_mean'] = df_temp.groupby(group_col)['y_val'].rolling(window=window).mean().reset_index(0, drop=True)
+            
+            fig2 = px.line(df_temp, x='x_val', y='rolling_mean', color=group_col,
+                        title=f"{y_col} - Rolling Mean ({window} points) grouped by {group_col}",
+                        labels={'x_val': x_label, 'rolling_mean': f"{y_col} (Rolling Mean)", group_col: group_col})
+        else:
+            df_temp['rolling_mean'] = df_temp['y_val'].rolling(window=window).mean()
+            
+            fig2 = px.line(df_temp, x='x_val', y='rolling_mean', title=f"{y_col} - Rolling Mean ({window} points)",
+                        labels={'x_val': x_label, 'rolling_mean': f"{y_col} (Rolling Mean)"})
+        
         st.plotly_chart(fig2, use_container_width=True)
 
         # Optional linear trend line
