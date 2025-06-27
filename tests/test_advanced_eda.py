@@ -44,11 +44,15 @@ def sample_data():
 def test_calculate_correlation_with_pvalues(sample_data):
     """Test correlation calculation with p-values."""
     # Test with Pearson method
-    corr_matrix, p_values = calculate_correlation_with_pvalues(sample_data, method='pearson')
+    corr_matrix, p_values, missing_data_info = calculate_correlation_with_pvalues(sample_data, method='pearson')
     
     # Verify output shapes
     assert corr_matrix.shape == (3, 3)  # Only numeric columns
     assert p_values.shape == (3, 3)
+    
+    # Verify missing data info is returned
+    assert isinstance(missing_data_info, dict)
+    assert "has_dropped_data" in missing_data_info
     
     # Verify correlation between feature1 and feature2 is strong
     assert abs(corr_matrix.loc['feature1', 'feature2']) > 0.6
@@ -61,12 +65,16 @@ def test_calculate_correlation_with_pvalues(sample_data):
     assert np.allclose(np.diag(p_values), 0.0)
     
     # Test with Spearman method
-    corr_spearman, p_spearman = calculate_correlation_with_pvalues(sample_data, method='spearman')
+    corr_spearman, p_spearman, missing_data_spearman = calculate_correlation_with_pvalues(sample_data, method='spearman')
     assert corr_spearman.shape == (3, 3)
     
     # Test with Kendall method
-    corr_kendall, p_kendall = calculate_correlation_with_pvalues(sample_data, method='kendall')
+    corr_kendall, p_kendall, missing_data_kendall = calculate_correlation_with_pvalues(sample_data, method='kendall')
     assert corr_kendall.shape == (3, 3)
+    
+    # Test with invalid method
+    with pytest.raises(ValueError):
+        calculate_correlation_with_pvalues(sample_data, method='invalid_method')
     
     # Test with invalid method
     with pytest.raises(ValueError):
