@@ -328,23 +328,29 @@ def plot_boxplot(df: pd.DataFrame,
 def plot_scatter(df, x_col, y_col, color_col=None):
     title = f"Scatter Plot: {y_col} vs {x_col}"
     if color_col:
+        # Create scatter plot with color grouping
         fig = px.scatter(df, x=x_col, y=y_col, color=color_col, title=title)
     else:
+        # Create scatter plot without color grouping
         fig = px.scatter(df, x=x_col, y=y_col, title=title)
 
     try:
-        x_vals = df[x_col].dropna()
-        y_vals = df[y_col].dropna()
-        common = df[[x_col, y_col]].dropna()
+        x_vals = df[x_col].dropna() # Drop NaN values for x-axis
+        y_vals = df[y_col].dropna() # Drop NaN values for y-axis
+        common = df[[x_col, y_col]].dropna() # Drop rows with NaN in either x or y
         fit_type = st.selectbox("Select fit type:", ["Linear", "Quadratic", "Cubic", "Exponential", "Logarithmic", "Polynomial (n-order)"], index=0)
 
-        if fit_type == "Linear":
+        if fit_type == "Linear": 
+            # Fit a linear regression line
             degree = 1
         elif fit_type == "Quadratic":
+            # Fit a quadratic curve
             degree = 2
         elif fit_type == "Cubic":
+            # Fit a cubic curve
             degree = 3
         elif fit_type == "Exponential":
+            # Fit an exponential curve
             coeffs = np.polyfit(common[x_col], np.log(common[y_col] + 1e-5), 1)
             y_fit = np.exp(coeffs[1] + coeffs[0] * common[x_col])
             fig.add_trace(go.Scatter(x=common[x_col], y=y_fit, mode='lines', name='Exponential Fit'))
@@ -353,6 +359,7 @@ def plot_scatter(df, x_col, y_col, color_col=None):
                                showarrow=False, bgcolor="white")
             return fig
         elif fit_type == "Logarithmic":
+            # Fit a logarithmic curve
             log_x = np.log(common[x_col] + 1e-5)
             coeffs = np.polyfit(log_x, common[y_col], 1)
             y_fit = coeffs[0] * np.log(common[x_col] + 1e-5) + coeffs[1]
@@ -366,7 +373,7 @@ def plot_scatter(df, x_col, y_col, color_col=None):
         else:
             degree = 1
 
-        coeffs = np.polyfit(common[x_col], common[y_col], degree)
+        coeffs = np.polyfit(common[x_col], common[y_col], degree) # Fit polynomial coefficients
         poly = np.poly1d(coeffs)
         x_sorted = np.sort(common[x_col])
         y_fit = poly(x_sorted)
@@ -375,6 +382,7 @@ def plot_scatter(df, x_col, y_col, color_col=None):
         fig.add_annotation(x=0.95, y=0.05, xref="paper", yref="paper", text=f"Corr: {corr:.2f}",
                            showarrow=False, bgcolor="white")
     except Exception as e:
+        # Handle any errors in fitting
         st.warning(f"Could not compute fit: {e}")
 
     return fig
@@ -656,15 +664,17 @@ def basic_eda_ui(df: pd.DataFrame) -> None:
     with tab5:
         st.subheader("Time Series Analysis")
 
-        df_temp = df.copy()
+        df_temp = df.copy() # Make a copy to avoid modifying the original dataframe
 
-        x_col = st.selectbox("Select X-axis (time-like or numeric):", options=df_temp.columns)
+        x_col = st.selectbox("Select X-axis (time-like or numeric):", options=df_temp.columns) # Select column for X-axis
         
         if pd.api.types.is_datetime64_any_dtype(df_temp[x_col]):
+            # If datetime, convert to datetime if not already
             df_temp['x_val'] = df_temp[x_col]
             x_label = x_col
         else:
             try:
+                # Try converting to numeric if not datetime
                 df_temp['x_val'] = pd.to_numeric(df_temp[x_col])
                 x_unit = st.text_input(f"Enter unit for x-axis [{x_col}]:", value="units")
                 x_label = f"{x_col} [{x_unit}]"
@@ -674,10 +684,11 @@ def basic_eda_ui(df: pd.DataFrame) -> None:
 
         numeric_cols = df_temp.select_dtypes(include='number').columns.tolist()
         if not numeric_cols:
+            # If no numeric columns, show warning and stop
             st.warning("No numeric columns available for Y-axis.")
             st.stop()
 
-        y_col = st.selectbox("Select Y-axis (numeric):", options=numeric_cols)
+        y_col = st.selectbox("Select Y-axis (numeric):", options=numeric_cols) # Select column for Y-axis
         df_temp['y_val'] = df_temp[y_col]
 
         # Optional grouping by category
@@ -691,6 +702,7 @@ def basic_eda_ui(df: pd.DataFrame) -> None:
         
         group_col = None
         if categorical_cols:
+            # Option to group by a categorical column
             use_grouping = st.checkbox("Group by category column?", value=False)
             if use_grouping:
                 group_col = st.selectbox("Select column for grouping:", options=categorical_cols)
