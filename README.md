@@ -61,3 +61,5 @@ This project is licensed under the MIT License.
 * [Billionaires Statistics Dataset](https://www.kaggle.com/datasets/nelgiriyewithana/billionaires-statistics-dataset)
 * [Titanic Dataset](https://www.kaggle.com/c/titanic/)
 * [Student Academic Performance Dataset](https://www.kaggle.com/datasets/firedmosquito831/student-academic-performance-simulation-4000)
+* [Climate Time Series Data](https://climateknowledgeportal.worldbank.org/)
+

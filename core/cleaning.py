@@ -600,6 +600,46 @@ def clean_data_ui(df: pd.DataFrame) -> pd.DataFrame:
                 st.success("Missing values in numeric columns imputed using KNN.")
                 st.experimental_rerun()
 
+    # --- Drop rows with NAs in specific columns ---
+    if all_missing_cols:
+        st.markdown("#### Drop Rows with Missing Values")
+        
+        # Create a summary of NA counts for each column to help users make decisions
+        na_counts = cleaned_df[all_missing_cols].isna().sum().sort_values(ascending=False)
+        na_percentages = (na_counts / len(cleaned_df) * 100).round(1)
+        
+        # Display NA counts and percentages in a dataframe for better visualization
+        na_summary = pd.DataFrame({
+            'Column': na_counts.index,
+            'NA Count': na_counts.values,
+            'NA Percentage': na_percentages.values
+        })
+        
+        st.write("Missing values summary:")
+        st.dataframe(na_summary, use_container_width=True)
+        
+        # Let users select columns for which they want to drop rows with NAs
+        cols_to_check = st.multiselect(
+            "Select columns where rows with missing values should be dropped:",
+            options=all_missing_cols,
+            default=[],
+            key="cols_to_drop_nas"
+        )
+        
+        if cols_to_check:
+            # Show a preview of how many rows will be dropped
+            rows_before = len(cleaned_df)
+            rows_to_drop = cleaned_df[cols_to_check].isna().any(axis=1).sum()
+            rows_after = rows_before - rows_to_drop
+            
+            st.warning(f"This will drop {rows_to_drop} rows ({(rows_to_drop/rows_before*100):.1f}% of data), leaving {rows_after} rows.")
+            
+            if st.button("Drop Rows with Missing Values"):
+                # Drop rows where any of the selected columns have NAs
+                st.session_state.cleaned_df = st.session_state.cleaned_df.dropna(subset=cols_to_check)
+                st.success(f"Dropped {rows_to_drop} rows with missing values in the selected columns.")
+                st.experimental_rerun()
+
     if not all_missing_cols:
         st.write("No missing values detected in the dataset.")
 
